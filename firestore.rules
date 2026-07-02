@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 기본적으로 인증된 사용자만 접근 가능
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 화이트리스트 (회원정보) - 본인 정보만 수정 가능
+    match /whitelist/{email} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == email;
+    }
+
+    // 클래스 관리 - 교사(생성자)만 수정/삭제 가능, 학생은 읽기만 가능
+    match /classes/{classId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+    }
+
+    // 폴더 - 생성자만 관리
+    match /folders/{folderId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+    }
+
+    // 토픽 - 생성자만 관리
+    match /topics/{topicId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+    }
+
+    // 콘텐츠 - 생성자만 관리
+    match /contents/{contentId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+    }
+
+    // 학습 기록 (점수) - 학생 본인만 생성/수정 가능
+    match /scores/{scoreId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.data.studentId == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.studentId == request.auth.uid;
+    }
+  }
+}
