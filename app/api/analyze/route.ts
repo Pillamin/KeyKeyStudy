@@ -4,9 +4,6 @@ import { PDFDocument } from 'pdf-lib';
 
 
 export async function POST(req: NextRequest) {
-  // 개발 환경 프록시/MITM 인증서 이슈 우회
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
@@ -103,7 +100,7 @@ export async function POST(req: NextRequest) {
 `;
 
     const responseStream = await ai.models.generateContentStream({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.5-flash',
         contents: [
             { role: 'user', parts: [
               { text: prompt },

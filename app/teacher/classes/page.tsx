@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 import Navbar from '@/components/layout/Navbar';
@@ -22,6 +22,9 @@ function ClassManagementContent() {
   const { user, loading: authLoading } = useAuth();
   const { showToast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClassId = searchParams?.get('classId');
+  const isSingleClassMode = !!queryClassId;
 
   const [classes, setClasses] = useState<ClassDoc[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
@@ -51,6 +54,7 @@ function ClassManagementContent() {
   const [selectedStudentIdsToAdd, setSelectedStudentIdsToAdd] = useState<string[]>([]);
   const [selectedTeacherEmailsToRemove, setSelectedTeacherEmailsToRemove] = useState<string[]>([]);
   const [selectedStudentIdsToRemove, setSelectedStudentIdsToRemove] = useState<string[]>([]);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
   const loadData = async (userEmail: string) => {
     try {
@@ -63,7 +67,18 @@ function ClassManagementContent() {
       setAllStudents(studentList);
       setAllTeachers(allWhitelist.filter(u => u.role === 'teacher'));
       
-      if (selectedClassId) {
+      if (queryClassId) {
+        setSelectedClassId(queryClassId);
+        const sorted = studentList.filter((u) => u.classId === queryClassId).sort((a, b) => {
+          const gA = parseInt(a.grade || '0'), gB = parseInt(b.grade || '0');
+          const cA = parseInt(a.classNumber || '0'), cB = parseInt(b.classNumber || '0');
+          const nA = parseInt(a.studentNumber || '0'), nB = parseInt(b.studentNumber || '0');
+          if (gA !== gB) return gA - gB;
+          if (cA !== cB) return cA - cB;
+          return nA - nB;
+        });
+        setStudentsInClass(sorted);
+      } else if (selectedClassId) {
         const sorted = studentList.filter((u) => u.classId === selectedClassId).sort((a, b) => {
           const gA = parseInt(a.grade || '0'), gB = parseInt(b.grade || '0');
           const cA = parseInt(a.classNumber || '0'), cB = parseInt(b.classNumber || '0');
@@ -142,25 +157,37 @@ function ClassManagementContent() {
     setIsCreatingClass(false);
   };
 
-  const handleDeleteClass = async (classId: string, className: string) => {
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string; name: string } | null>(null);
+
+  const handleDeleteClassClick = (classId: string, className: string) => {
+    const CUTOFF = new Date('2026-07-02T23:00:00+09:00').getTime();
     const cls = classes.find(c => c.id === classId);
+    const createdAt = cls?.createdAt?.toMillis?.() || ((cls?.createdAt as any)?.seconds ? (cls?.createdAt as any).seconds * 1000 : 0);
+    if (cls && createdAt < CUTOFF) {
+      setAlertMessage('초기 제공된 체험용 수업은 삭제할 수 없습니다. (새로 생성한 체험용 수업은 삭제 가능합니다.)');
+      return;
+    }
     if (cls && cls.createdBy !== user?.uid) {
       showToast('수업을 생성한 교사만 삭제할 수 있습니다.', 'error');
       return;
     }
-    if (confirm(`'${className}' 수업을 삭제하시겠습니까?\n이 수업에 배포된 모든 학습 콘텐츠 복사본이 삭제되며, 등록된 학생들의 수업 정보가 초기화됩니다.`)) {
-      try {
-        await deleteClass(classId);
-        showToast('수업이 삭제되었습니다.', 'success');
-        if (selectedClassId === classId) {
-          setSelectedClassId(null);
-        }
-        if (user?.email) await loadData(user.email);
-      } catch (err) {
-        console.error(err);
-        showToast('수업 삭제 중 오류가 발생했습니다.', 'error');
+    setDeleteModal({ isOpen: true, id: classId, name: className });
+  };
+
+  const confirmDeleteClass = async () => {
+    if (!deleteModal) return;
+    try {
+      await deleteClass(deleteModal.id);
+      showToast('수업이 삭제되었습니다.', 'success');
+      if (selectedClassId === deleteModal.id) {
+        setSelectedClassId(null);
       }
+      if (user?.email) await loadData(user.email);
+    } catch (err) {
+      console.error(err);
+      showToast('수업 삭제 중 오류가 발생했습니다.', 'error');
     }
+    setDeleteModal(null);
   };
 
   const handleAssign = async (email: string) => {
@@ -356,8 +383,9 @@ function ClassManagementContent() {
           <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>⚙️ 수업 관리</h1>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 'var(--spacing-lg)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isSingleClassMode ? '1fr' : '280px 1fr', gap: 'var(--spacing-lg)' }}>
           {/* Left Sidebar: Class List */}
+          {!isSingleClassMode && (
           <aside>
             <h2 style={{ fontSize: '0.9375rem', fontWeight: 700, marginBottom: 'var(--spacing-md)', color: 'var(--color-text-secondary)' }}>내 수업 목록</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-xl)' }}>
@@ -373,11 +401,6 @@ function ClassManagementContent() {
                     >
                       🏫 {c.className}
                     </button>
-                    {c.createdBy === user?.uid && (
-                      <button onClick={() => handleDeleteClass(c.id, c.className)} style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', padding: '4px', fontSize: '1rem' }} title="수업 삭제">
-                        ✕
-                      </button>
-                    )}
                   </div>
                 ))
               )}
@@ -408,14 +431,26 @@ function ClassManagementContent() {
               </form>
             </div>
           </aside>
+          )}
 
           {/* Right Main Area: Users Management */}
           <div className="card" style={{ minHeight: 500 }}>
             {selectedClass ? (
               <>
-                <div style={{ marginBottom: 'var(--spacing-2xl)', paddingBottom: 'var(--spacing-lg)', borderBottom: '2px solid var(--color-primary)' }}>
-                  <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: 4, color: 'var(--color-primary)' }}>🏫 {selectedClass.className}</h2>
-                  <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9375rem' }}>수업 참여 코드: <strong style={{ color: 'var(--color-primary)', background: 'var(--color-primary-light)', padding: '2px 8px', borderRadius: 4 }}>{selectedClass.classCode}</strong></p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--spacing-2xl)', paddingBottom: 'var(--spacing-lg)', borderBottom: '2px solid var(--color-primary)' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: 4, color: 'var(--color-primary)' }}>🏫 {selectedClass.className}</h2>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9375rem' }}>수업 참여 코드: <strong style={{ color: 'var(--color-primary)', background: 'var(--color-primary-light)', padding: '2px 8px', borderRadius: 4 }}>{selectedClass.classCode}</strong></p>
+                  </div>
+                  {selectedClass.createdBy === user?.uid && (
+                    <button 
+                      className="btn" 
+                      onClick={() => handleDeleteClassClick(selectedClass.id, selectedClass.className)} 
+                      style={{ fontSize: '0.8125rem', color: 'var(--color-error)', border: '1px solid var(--color-error-bg)', background: 'var(--color-error-bg)', padding: '6px 12px', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      수업 삭제
+                    </button>
+                  )}
                 </div>
 
                 {/* Teachers Section */}
@@ -673,7 +708,54 @@ function ClassManagementContent() {
             </div>
           </form>
         </Modal>
+
+        {deleteModal?.isOpen && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'blur(4px)' }}>
+            <div className="card" style={{ width: '100%', maxWidth: 400, padding: 'var(--spacing-xl)', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--color-border-default)' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-md)', color: 'var(--color-text-primary)', textAlign: 'center' }}>
+                수업 삭제
+              </h2>
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9375rem', marginBottom: 'var(--spacing-lg)', lineHeight: 1.5, textAlign: 'center' }}>
+                &apos;{deleteModal.name}&apos; 수업을 삭제하시겠습니까?
+              </p>
+              
+              <div style={{ background: '#FEF2F2', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-lg)', border: '1px solid #FECACA' }}>
+                <p style={{ color: '#991B1B', fontSize: '0.875rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  주의: 이 수업에 배포된 모든 학습 콘텐츠 복사본이 삭제되며, 등록된 학생들의 수업 정보가 초기화됩니다.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setDeleteModal(null)}>취소</button>
+                <button 
+                  type="button" 
+                  className="btn" 
+                  style={{ background: 'var(--color-error)', color: 'white', border: 'none' }}
+                  onClick={confirmDeleteClass}
+                >
+                  삭제하기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
+      
+      {/* Alert Modal */}
+      {alertMessage && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: 400, textAlign: 'center' }}>
+            <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-md)' }}>🚫</div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-md)' }}>알림</h2>
+            <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-xl)', lineHeight: 1.5 }}>
+              {alertMessage}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <button className="btn btn-primary" onClick={() => setAlertMessage(null)}>확인</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

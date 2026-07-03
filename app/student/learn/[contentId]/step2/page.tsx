@@ -42,6 +42,7 @@ export default function Step2Page() {
 
   useEffect(() => {
     if (!contentId) return;
+    let unsub: (() => void) | null = null;
     getContentDoc(contentId).then(doc => {
       if (doc) {
         setContentDoc(doc);
@@ -54,12 +55,11 @@ export default function Step2Page() {
         setKeywords(normalizedKeywords);
       }
       setLoading(false);
+      unsub = subscribeLeaderboard(contentId, (newScores) => {
+        setScores(newScores);
+      }, doc?.classId);
     });
-    
-    const unsub = subscribeLeaderboard(contentId, (newScores) => {
-      setScores(newScores);
-    });
-    return () => unsub();
+    return () => { if (unsub) unsub(); };
   }, [contentId]);
 
   useEffect(() => {

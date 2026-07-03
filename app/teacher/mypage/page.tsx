@@ -19,6 +19,7 @@ export default function TeacherMyPage() {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
@@ -86,7 +87,7 @@ export default function TeacherMyPage() {
   const handleWithdraw = async () => {
     if (!user?.email) return;
     if (user.email.endsWith('@mock.com')) {
-      alert('목업(테스트) 계정은 탈퇴(삭제)할 수 없습니다.');
+      setAlertMessage('목업(테스트) 계정은 탈퇴(삭제)할 수 없습니다.');
       return;
     }
 
@@ -236,6 +237,21 @@ export default function TeacherMyPage() {
         </div>
 
       </main>
+      {/* Alert Modal */}
+      {alertMessage && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: 400, textAlign: 'center' }}>
+            <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-md)' }}>🚫</div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-md)' }}>알림</h2>
+            <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-xl)', lineHeight: 1.5 }}>
+              {alertMessage}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <button className="btn btn-primary" onClick={() => setAlertMessage(null)}>확인</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

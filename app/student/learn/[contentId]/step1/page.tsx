@@ -45,6 +45,7 @@ export default function Step1Page() {
 
   useEffect(() => {
     if (!contentId) return;
+    let unsub: (() => void) | null = null;
     getContentDoc(contentId).then(doc => {
       if (doc) {
         setContentDoc(doc);
@@ -55,12 +56,11 @@ export default function Step1Page() {
         setParagraphs(splitParas);
       }
       setLoading(false);
+      unsub = subscribeLeaderboard(contentId, (newScores) => {
+        setScores(newScores);
+      }, doc?.classId);
     });
-    
-    const unsub = subscribeLeaderboard(contentId, (newScores) => {
-      setScores(newScores);
-    });
-    return () => unsub();
+    return () => { if (unsub) unsub(); };
   }, [contentId]);
 
   useEffect(() => {

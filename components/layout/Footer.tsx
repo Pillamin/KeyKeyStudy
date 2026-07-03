@@ -1,18 +1,20 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { marked } from 'marked';
 
 export default function Footer() {
   const [modalContent, setModalContent] = useState<'terms' | 'privacy' | null>(null);
-  const [termsText, setTermsText] = useState('');
-  const [privacyText, setPrivacyText] = useState('');
+  const [termsHtml, setTermsHtml] = useState('');
+  const [privacyHtml, setPrivacyHtml] = useState('');
 
   useEffect(() => {
     if (modalContent) {
       fetch(`/api/legal?type=${modalContent}`)
         .then(res => res.text())
         .then(text => {
-          if (modalContent === 'terms') setTermsText(text);
-          else setPrivacyText(text);
+          const html = marked(text) as string;
+          if (modalContent === 'terms') setTermsHtml(html);
+          else setPrivacyHtml(html);
         });
     }
   }, [modalContent]);
@@ -34,9 +36,11 @@ export default function Footer() {
             <h2 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: 'var(--spacing-md)' }}>
               {modalContent === 'terms' ? '이용약관' : '개인정보처리방침'}
             </h2>
-            <div style={{ flex: 1, overflowY: 'auto', background: 'var(--color-bg-secondary)', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', whiteSpace: 'pre-wrap', fontSize: '0.9375rem', lineHeight: 1.6 }}>
-              {modalContent === 'terms' ? termsText : privacyText}
-            </div>
+            <div
+              className="legal-content"
+              style={{ flex: 1, overflowY: 'auto', background: 'var(--color-bg-secondary)', padding: 'var(--spacing-lg)', borderRadius: 'var(--radius-md)' }}
+              dangerouslySetInnerHTML={{ __html: modalContent === 'terms' ? termsHtml : privacyHtml }}
+            />
             <div style={{ textAlign: 'right', marginTop: 'var(--spacing-md)' }}>
               <button className="btn btn-primary" onClick={() => setModalContent(null)}>닫기</button>
             </div>

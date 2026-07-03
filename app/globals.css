@@ -149,7 +149,41 @@ input, select, textarea { font-family: inherit; }
 .stat-value { font-size: 2rem; font-weight: 700; color: var(--color-primary); line-height: 1; }
 .stat-label { font-size: 0.8125rem; color: var(--color-text-muted); margin-top: var(--spacing-xs); }
 
+/* Modal Styles */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+  animation: fadeIn var(--transition-fast) ease-out;
+}
+.modal-content {
+  background: var(--color-bg-primary);
+  padding: var(--spacing-2xl);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  max-width: 90%;
+  width: 400px;
+  animation: slideUp var(--transition-fast) ease-out;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
 @media (max-width: 768px) { .container { padding: 0 var(--spacing-sm); } .card { padding: var(--spacing-md); } .nav { padding: 0 var(--spacing-md); } }
 
 .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Legal pages (terms, privacy) */
+.legal-content h1 { font-size: 1.5rem; font-weight: 800; color: var(--color-text-primary); margin-bottom: var(--spacing-lg); padding-bottom: var(--spacing-sm); border-bottom: 2px solid var(--color-border-default); }
+.legal-content h2 { font-size: 1.25rem; font-weight: 700; color: var(--color-text-primary); margin: 1.75rem 0 0.75rem; }
+.legal-content h3 { font-size: 1rem; font-weight: 700; color: var(--color-text-primary); margin: 1.5rem 0 0.5rem; }
+.legal-content p { font-size: 0.9375rem; color: var(--color-text-secondary); line-height: 1.8; margin: 0.5rem 0; }
+.legal-content ol, .legal-content ul { font-size: 0.9375rem; color: var(--color-text-secondary); line-height: 1.8; padding-left: 1.5rem; margin: 0.5rem 0; }
+.legal-content li { margin: 0.25rem 0; }
+.legal-content strong { color: var(--color-text-primary); font-weight: 700; }
+.legal-content hr { border: none; border-top: 1px solid var(--color-border-default); margin: 1.25rem 0; }
+.legal-content table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.875rem; }
+.legal-content th, .legal-content td { padding: 8px 12px; border: 1px solid var(--color-border-default); color: var(--color-text-secondary); text-align: left; }
+.legal-content th { background: var(--color-bg-secondary); font-weight: 600; color: var(--color-text-primary); }
+

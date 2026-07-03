@@ -27,6 +27,7 @@ export default function TeacherStudentsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
@@ -65,9 +66,15 @@ export default function TeacherStudentsPage() {
   };
 
   const handleDeleteSelected = async () => {
-    const validIds = Array.from(selectedStudents).filter(id => !id.endsWith('@mock.com'));
+    const CUTOFF = new Date('2026-07-02T21:00:00+09:00').getTime();
+    const validIds = Array.from(selectedStudents).filter(id => {
+      if (!id.endsWith('@mock.com')) return true;
+      const student = students.find(s => s.id === id);
+      const registeredAt = student?.registeredAt?.toMillis?.() || 0;
+      return registeredAt >= CUTOFF;
+    });
     if (validIds.length === 0) {
-      alert('목업(테스트) 계정은 삭제할 수 없습니다.');
+      window.alert('기본 제공된 초기 체험용 계정은 삭제할 수 없습니다.');
       return;
     }
     
@@ -87,6 +94,13 @@ export default function TeacherStudentsPage() {
   };
 
   const handleDeleteSingle = async (id: string, name: string) => {
+    const CUTOFF = new Date('2026-07-02T21:00:00+09:00').getTime();
+    const student = students.find(s => s.id === id);
+    const registeredAt = student?.registeredAt?.toMillis?.() || 0;
+    if (id.endsWith('@mock.com') && registeredAt < CUTOFF) {
+      window.alert('기본 제공된 초기 체험용 학생 계정은 삭제할 수 없습니다.');
+      return;
+    }
     if (!confirm(`'${name}' 학생을 정말로 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
     
     setIsDeleting(true);
@@ -271,7 +285,9 @@ export default function TeacherStudentsPage() {
                       const dateStr = student.registeredAt 
                         ? (typeof student.registeredAt.toMillis === 'function' 
                             ? new Date(student.registeredAt.toMillis()).toLocaleDateString() 
-                            : new Date(student.registeredAt as any).toLocaleDateString()) 
+                            : ((student.registeredAt as any).seconds 
+                                ? new Date((student.registeredAt as any).seconds * 1000).toLocaleDateString()
+                                : new Date(student.registeredAt as any).toLocaleDateString())) 
                         : '-';
 
                       return (
@@ -303,15 +319,15 @@ export default function TeacherStudentsPage() {
                               </button>
                               <button 
                                 className="btn btn-secondary" 
-                                style={{ padding: '4px 10px', fontSize: '0.75rem', color: student.id.endsWith('@mock.com') ? 'var(--color-text-muted)' : 'var(--color-error)' }}
+                                style={{ padding: '4px 10px', fontSize: '0.75rem', color: 'var(--color-error)', border: '1px solid var(--color-error-bg)', background: 'var(--color-error-bg)' }}
                                 onClick={() => {
                                   if (student.id.endsWith('@mock.com')) {
-                                    alert('목업(테스트) 계정은 삭제할 수 없습니다.');
+                                    setAlertMessage('목업(테스트) 계정은 삭제할 수 없습니다.');
                                   } else {
                                     handleDeleteSingle(student.id, student.displayName || '이름 없음');
                                   }
                                 }}
-                                disabled={isDeleting || student.id.endsWith('@mock.com')}
+                                disabled={isDeleting}
                                 title={student.id.endsWith('@mock.com') ? "목업 계정은 삭제할 수 없습니다" : ""}
                               >
                                 삭제
@@ -344,21 +360,21 @@ export default function TeacherStudentsPage() {
 
             <div style={{ marginBottom: 'var(--spacing-md)' }}>
               <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: '4px' }}>이름</label>
-              <input type="text" className="input" value={editData.displayName} onChange={e => setEditData({...editData, displayName: e.target.value})} />
+              <input type="text" className="input" value={editData.displayName} onChange={e => setEditData({...editData, displayName: e.target.value})} style={{ width: '100%', boxSizing: 'border-box' }} />
             </div>
 
             <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-xl)' }}>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: '4px' }}>학년</label>
-                <input type="text" className="input" value={editData.grade} onChange={e => setEditData({...editData, grade: e.target.value})} placeholder="예: 3" />
+                <input type="text" className="input" value={editData.grade} onChange={e => setEditData({...editData, grade: e.target.value})} placeholder="예: 3" style={{ width: '100%', boxSizing: 'border-box' }} />
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: '4px' }}>반</label>
-                <input type="text" className="input" value={editData.classNumber} onChange={e => setEditData({...editData, classNumber: e.target.value})} placeholder="예: 2" />
+                <input type="text" className="input" value={editData.classNumber} onChange={e => setEditData({...editData, classNumber: e.target.value})} placeholder="예: 2" style={{ width: '100%', boxSizing: 'border-box' }} />
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: '4px' }}>번호</label>
-                <input type="text" className="input" value={editData.studentNumber} onChange={e => setEditData({...editData, studentNumber: e.target.value})} placeholder="예: 15" />
+                <input type="text" className="input" value={editData.studentNumber} onChange={e => setEditData({...editData, studentNumber: e.target.value})} placeholder="예: 15" style={{ width: '100%', boxSizing: 'border-box' }} />
               </div>
             </div>
 
@@ -372,6 +388,21 @@ export default function TeacherStudentsPage() {
         </div>
       )}
 
+      {/* Alert Modal */}
+      {alertMessage && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: 400, textAlign: 'center' }}>
+            <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-md)' }}>🚫</div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-md)' }}>알림</h2>
+            <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-xl)', lineHeight: 1.5 }}>
+              {alertMessage}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <button className="btn btn-primary" onClick={() => setAlertMessage(null)}>확인</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -25,6 +25,7 @@ function AdminUsersContent() {
   const [newRole, setNewRole] = useState<UserRole>('student');
   const [adding, setAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
   const load = () => { getAllWhitelistDocs().then((list) => { setUsers(list); setLoading(false); }); };
   useEffect(() => { load(); }, []);
@@ -41,6 +42,13 @@ function AdminUsersContent() {
   };
 
   const handleDelete = async (email: string) => {
+    const targetUser = users.find(u => u.id === email);
+    const registeredAt = targetUser?.registeredAt?.toMillis?.() || 0;
+    const CUTOFF = new Date('2026-07-02T21:00:00+09:00').getTime();
+    if (email.endsWith('@mock.com') && registeredAt < CUTOFF) {
+      window.alert('기본 제공된 초기 체험용 계정은 삭제할 수 없습니다. (새로 추가한 체험용 데이터는 삭제 가능합니다.)');
+      return;
+    }
     if (!confirm(`${email} 계정을 삭제하시겠습니까?`)) return;
     setDeletingId(email);
     try { await deleteWhitelistDoc(email); showToast('계정이 삭제되었습니다.', 'success'); load(); } catch { showToast('삭제 실패', 'error'); } finally { setDeletingId(null); }
@@ -88,9 +96,9 @@ function AdminUsersContent() {
                         <option value="student">학생</option><option value="teacher">교사</option><option value="admin">관리자</option>
                       </select>
                     </td>
-                    <td style={{ padding: '12px var(--spacing-md)', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>{u.registeredAt?.toDate?.().toLocaleDateString('ko-KR') ?? '-'}</td>
+                    <td style={{ padding: '12px var(--spacing-md)', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>{u.registeredAt ? (typeof u.registeredAt.toDate === 'function' ? u.registeredAt.toDate().toLocaleDateString('ko-KR') : ((u.registeredAt as any).seconds ? new Date((u.registeredAt as any).seconds * 1000).toLocaleDateString('ko-KR') : new Date(u.registeredAt as any).toLocaleDateString('ko-KR'))) : '-'}</td>
                     <td style={{ padding: '12px var(--spacing-md)' }}>
-                      {u.id !== user?.email && <Button variant="ghost" size="sm" loading={deletingId === u.id} onClick={() => handleDelete(u.id)} style={{ color: 'var(--color-error)', fontSize: '0.8125rem', padding: '4px 10px' }}>삭제</Button>}
+                      {u.id !== user?.email && <Button variant="ghost" size="sm" loading={deletingId === u.id} onClick={() => { if(u.id.endsWith('@mock.com')) setAlertMessage('목업(테스트) 계정은 삭제할 수 없습니다.'); else handleDelete(u.id); }} style={{ color: 'var(--color-error)', fontSize: '0.8125rem', padding: '4px 10px' }}>삭제</Button>}
                     </td>
                   </tr>
                 ))}
@@ -106,6 +114,21 @@ function AdminUsersContent() {
             <div className="form-group"><label htmlFor="newRole" className="form-label">역할</label><select id="newRole" className="form-select" value={newRole} onChange={(e) => setNewRole(e.target.value as UserRole)}><option value="student">학생</option><option value="teacher">교사</option><option value="admin">관리자</option></select></div>
           </form>
         </Modal>
+
+        {alertMessage && (
+          <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div className="modal-content" style={{ background: 'white', padding: 'var(--spacing-xl)', borderRadius: 'var(--radius-md)', maxWidth: 400, textAlign: 'center' }}>
+              <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-md)' }}>🚫</div>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-md)' }}>알림</h2>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-xl)', lineHeight: 1.5 }}>
+                {alertMessage}
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <Button variant="primary" onClick={() => setAlertMessage(null)}>확인</Button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

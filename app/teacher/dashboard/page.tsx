@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthContext';
-import { getClassesByTeacher, getContentsByClass, getContentsByTeacher, deleteContent, getFoldersByTeacher, createFolder, updateClass, updateContent, deleteFolder, getTopicsByParent, createTopic, updateTopic, deleteTopic } from '@/lib/firebase/queries';
+import { getClassesByTeacher, getContentsByClass, getContentsByTeacher, deleteContent, getFoldersByTeacher, createFolder, updateFolder, updateClass, updateContent, deleteFolder, getTopicsByParent, createTopic, updateTopic, deleteTopic } from '@/lib/firebase/queries';
 import type { ClassDoc, ContentDoc, FolderDoc, TopicDoc } from '@/lib/firebase/types';
 import Navbar from '@/components/layout/Navbar';
 
@@ -18,10 +18,12 @@ export default function TeacherDashboard() {
 
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
 
   const [topics, setTopics] = useState<TopicDoc[]>([]);
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
+  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
   const [newTopicName, setNewTopicName] = useState('');
   const [isCreatingTopic, setIsCreatingTopic] = useState(false);
   const [isTopicReorderMode, setIsTopicReorderMode] = useState(false);
@@ -42,7 +44,8 @@ export default function TeacherDashboard() {
   const [draggedClassIndex, setDraggedClassIndex] = useState<number | null>(null);
 
   // Deletion Modal State
-  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; type: 'folder' | 'content'; id: string; name: string } | null>(null);
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; type: 'folder' | 'content' | 'topic'; id: string; name: string } | null>(null);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
@@ -117,68 +120,42 @@ export default function TeacherDashboard() {
   };
 
   const handleDeleteContent = (contentId: string, contentTitle: string) => {
+    const CUTOFF = new Date('2026-07-02T23:00:00+09:00').getTime();
+    const content = contents.find(c => c.id === contentId);
+    const createdAt = content?.createdAt?.toMillis?.() || ((content?.createdAt as any)?.seconds ? (content?.createdAt as any).seconds * 1000 : 0);
+    if (content && createdAt < CUTOFF) {
+      setAlertMessage('초기 제공된 체험용 학습 콘텐츠는 삭제할 수 없습니다. (새로 생성한 콘텐츠는 삭제 가능)');
+      return;
+    }
     setDeleteModal({ isOpen: true, type: 'content', id: contentId, name: contentTitle });
   };
 
   const confirmDeleteContent = async (contentId: string) => {
     try {
-      await deleteContent(contentId);
-      if ((selectedClassId === 'library' || selectedClassId.startsWith('folder:')) && user?.uid) {
-        getContentsByTeacher(user.uid).then(list => {
-          if (selectedClassId.startsWith('folder:')) {
-            const fId = selectedClassId.replace('folder:', '');
-            const folderList = list.filter(c => c.folderId === fId);
-            folderList.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
-            setContents(folderList);
-          } else {
-            const libList = [...list];
-            libList.sort((a, b) => {
-              const dateA = a.createdAt?.toMillis?.() || 0;
-              const dateB = b.createdAt?.toMillis?.() || 0;
-              return dateB - dateA;
-            });
-            setContents(libList);
-          }
-        });
-      } else if (selectedClassId && !selectedClassId.startsWith('folder:') && selectedClassId !== 'library') {
-        loadContents(selectedClassId);
-      }
-    } catch (err) {
-      console.error(err);
-      alert('삭제 중 오류가 발생했습니다.');
-    }
-    setDeleteModal(null);
-  };
-
-
-
-  const submitCreateTopic = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const name = newTopicName.trim();
-    if (!name) return;
-    
-    setIsCreatingTopic(true);
-    try {
-      const parentId = selectedClassId.startsWith('folder:') ? selectedClassId.replace('folder:', '') : (selectedClassId === 'library' ? 'library' : selectedClassId);
-      await createTopic({
-        name,
-        parentId,
-        orderIndex: topics.length,
-        createdAt: new Date() as any,
-      });
-      await loadTopics(parentId);
-      setIsTopicModalOpen(false);
-    } catch (err) {
-      console.error(err);
-      alert('주제 생성 중 오류가 발생했습니다.');
-    }
-    setIsCreatingTopic(false);
-  };
-
-  const handleDeleteTopic = async (topicId: string, topicName: string) => {
-    if (confirm(`'${topicName}' 주제를 삭제하시겠습니까?\n내부 콘텐츠는 지워지지 않으며 미분류로 이동합니다.`)) {
-      try {
-        await deleteTopic(topicId);
+      if (deleteModal?.type === 'content') {
+        await deleteContent(contentId);
+        if ((selectedClassId === 'library' || selectedClassId.startsWith('folder:')) && user?.uid) {
+          getContentsByTeacher(user.uid).then(list => {
+            if (selectedClassId.startsWith('folder:')) {
+              const fId = selectedClassId.replace('folder:', '');
+              const folderList = list.filter(c => c.folderId === fId);
+              folderList.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+              setContents(folderList);
+            } else {
+              const libList = [...list];
+              libList.sort((a, b) => {
+                const dateA = a.createdAt?.toMillis?.() || 0;
+                const dateB = b.createdAt?.toMillis?.() || 0;
+                return dateB - dateA;
+              });
+              setContents(libList);
+            }
+          });
+        } else if (selectedClassId && !selectedClassId.startsWith('folder:') && selectedClassId !== 'library') {
+          loadContents(selectedClassId);
+        }
+      } else if (deleteModal?.type === 'topic') {
+        await deleteTopic(deleteModal.id);
         const parentId = selectedClassId.startsWith('folder:') ? selectedClassId.replace('folder:', '') : (selectedClassId === 'library' ? 'library' : selectedClassId);
         await loadTopics(parentId);
         if (selectedClassId === 'library' || selectedClassId.startsWith('folder:')) {
@@ -199,18 +176,77 @@ export default function TeacherDashboard() {
               setContents(libList);
             }
           }
-        } else if (selectedClassId) {
-          await loadContents(selectedClassId);
+        } else if (selectedClassId && !selectedClassId.startsWith('folder:') && selectedClassId !== 'library') {
+          loadContents(selectedClassId);
         }
-      } catch (err) {
-        console.error(err);
-        alert('주제 삭제 오류');
       }
+    } catch (err) {
+      console.error(err);
+      setAlertMessage('삭제 중 오류가 발생했습니다.');
     }
+    setDeleteModal(null);
+  };
+
+
+
+  const openCreateTopicModal = () => {
+    setEditingTopicId(null);
+    setNewTopicName('');
+    setIsTopicModalOpen(true);
+  };
+
+  const submitCreateTopic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newTopicName.trim();
+    if (!name) return;
+    
+    setIsCreatingTopic(true);
+    try {
+      if (selectedClassId !== 'library' && selectedSubject !== '전체' && !hasSubjectPermission) {
+        setAlertMessage('담당 과목이 아닌 경우 주제를 추가하거나 수정할 수 없습니다.');
+        setIsCreatingTopic(false);
+        return;
+      }
+      const parentId = selectedClassId.startsWith('folder:') ? selectedClassId.replace('folder:', '') : (selectedClassId === 'library' ? 'library' : selectedClassId);
+      if (editingTopicId) {
+        await updateTopic(editingTopicId, { name } as any);
+        await loadTopics(parentId);
+      } else {
+        const payload: any = {
+          name,
+          parentId,
+          orderIndex: topics.length,
+          createdAt: new Date() as any,
+          createdBy: user?.uid || '',
+        };
+        if (selectedClass && selectedSubject !== '전체') {
+          payload.subject = selectedSubject;
+        }
+        await createTopic(payload);
+        await loadTopics(parentId);
+      }
+      setIsTopicModalOpen(false);
+      setEditingTopicId(null);
+    } catch (err) {
+      console.error(err);
+      alert('주제 저장 중 오류가 발생했습니다.');
+    }
+    setIsCreatingTopic(false);
+  };
+
+  const handleDeleteTopic = async (topicId: string, topicName: string) => {
+    const CUTOFF = new Date('2026-07-02T23:00:00+09:00').getTime();
+    const topic = topics.find(t => t.id === topicId);
+    const createdAt = topic?.createdAt?.toMillis?.() || ((topic?.createdAt as any)?.seconds ? (topic?.createdAt as any).seconds * 1000 : 0);
+    if (topic && createdAt < CUTOFF) {
+      setAlertMessage('초기 제공된 체험용 주제는 삭제할 수 없습니다.');
+      return;
+    }
+    setDeleteModal({ isOpen: true, type: 'topic', id: topicId, name: topicName });
   };
 
   const handleMoveToTopic = async (contentId: string, topicId: string) => {
-    await updateContent(contentId, { topicId: topicId === 'none' ? undefined : topicId });
+    await updateContent(contentId, { topicId: topicId === 'none' ? null : topicId } as any);
     // Refresh contents
     if (selectedClassId === 'library' || selectedClassId.startsWith('folder:')) {
       if (user?.uid) {
@@ -264,11 +300,18 @@ export default function TeacherDashboard() {
   };
 
   const openCreateFolderModal = () => {
+    setEditingFolderId(null);
     setNewFolderName('');
     setIsFolderModalOpen(true);
   };
 
-  const submitCreateFolder = async (e: React.FormEvent) => {
+  const openEditFolderModal = (id: string, currentName: string) => {
+    setEditingFolderId(id);
+    setNewFolderName(currentName);
+    setIsFolderModalOpen(true);
+  };
+
+  const submitFolderForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user?.uid) return;
     const name = newFolderName.trim();
@@ -276,21 +319,32 @@ export default function TeacherDashboard() {
     
     setIsCreatingFolder(true);
     try {
-      await createFolder({
-        name,
-        createdBy: user.uid,
-        createdAt: new Date() as any,
-      });
+      if (editingFolderId) {
+        await updateFolder(editingFolderId, { name });
+      } else {
+        await createFolder({
+          name,
+          createdBy: user.uid,
+          createdAt: new Date() as any,
+        });
+      }
       await loadFolders(user.uid);
       setIsFolderModalOpen(false);
     } catch (err) {
       console.error(err);
-      alert('폴더 생성 중 오류가 발생했습니다.');
+      alert(editingFolderId ? '폴더 수정 중 오류가 발생했습니다.' : '폴더 생성 중 오류가 발생했습니다.');
     }
     setIsCreatingFolder(false);
   };
 
   const handleDeleteFolder = (folderId: string, folderName: string) => {
+    const CUTOFF = new Date('2026-07-02T23:00:00+09:00').getTime();
+    const folder = folders.find(f => f.id === folderId);
+    const createdAt = folder?.createdAt?.toMillis?.() || ((folder?.createdAt as any)?.seconds ? (folder?.createdAt as any).seconds * 1000 : 0);
+    if (folder && createdAt < CUTOFF) {
+      setAlertMessage('초기 제공된 체험용 폴더는 삭제할 수 없습니다.');
+      return;
+    }
     setDeleteModal({ isOpen: true, type: 'folder', id: folderId, name: folderName });
   };
 
@@ -321,7 +375,6 @@ export default function TeacherDashboard() {
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     e.stopPropagation();
-    if (selectedClassId.startsWith('folder:')) return;
     setDraggedContentIndex(index);
     draggedContentOriginalTopicRef.current = contents[index]?.topicId;
     e.dataTransfer.effectAllowed = "move";
@@ -420,7 +473,7 @@ export default function TeacherDashboard() {
   };
 
   const handleMoveToFolder = async (contentId: string, folderId: string) => {
-    await updateContent(contentId, { folderId: folderId === 'none' ? undefined : folderId });
+    await updateContent(contentId, { folderId: folderId === 'none' ? null : folderId } as any);
     if (selectedClassId === 'library' || selectedClassId.startsWith('folder:')) {
       if (user?.uid) {
         getContentsByTeacher(user.uid).then(list => {
@@ -483,7 +536,17 @@ export default function TeacherDashboard() {
   if (loading || !user) return <div style={{ padding: 20 }}>Loading...</div>;
 
   const selectedClass = classes.find(c => c.id === selectedClassId);
-  const filteredContents = selectedSubject === '전체' ? contents : contents.filter(c => c.subject === selectedSubject);
+  const filteredContents = selectedSubject === '전체' && selectedClass
+    ? [...contents].sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0))
+    : (selectedSubject === '전체' ? contents : contents.filter(c => c.subject === selectedSubject));
+
+  const isClassCreator = !selectedClass || selectedClass.createdBy === user?.uid || selectedClass.createdByEmail === user?.email;
+  const isMySubject = selectedSubject !== '전체' && (
+    selectedSubject === profile?.subject ||
+    contents.some(c => c.subject === selectedSubject && c.createdBy === user?.uid) ||
+    topics.some(t => t.subject === selectedSubject && t.createdBy === user?.uid)
+  );
+  const hasSubjectPermission = isMySubject;
 
   return (
     <div className="page-wrapper" style={{ background: 'var(--color-bg-secondary)', minHeight: '100vh' }}>
@@ -491,7 +554,7 @@ export default function TeacherDashboard() {
 
       <main className="container" style={{ flex: 1, padding: 'var(--spacing-lg)', maxWidth: 1100, margin: '0 auto', width: '100%' }}>
         
-        {user?.email === 'new_user@mock.com' && (
+        {(user?.email === 'new_user@mock.com' || user?.email === 'demo@mock.com') && (
           <div className="fade-in" style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E3A8A', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-lg)', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '1.25rem' }}>💡</span>
             <div style={{ fontSize: '0.9375rem', fontWeight: 600, lineHeight: 1.5 }}>
@@ -504,10 +567,11 @@ export default function TeacherDashboard() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-xl)' }}>
           <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>교사 대시보드</h1>
           <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-            {selectedClassId && selectedClassId !== 'library' && !selectedClassId.startsWith('folder:') && (
+            {selectedClassId && selectedClassId !== 'library' && !selectedClassId.startsWith('folder:') ? (
               <button className="btn btn-secondary" onClick={() => router.push(`/teacher/classes?classId=${selectedClassId}`)} style={{ padding: '8px 16px', fontWeight: 700 }}>📚 수업 관리</button>
+            ) : (
+              <button className="btn btn-secondary" onClick={() => router.push('/teacher/students')} style={{ padding: '8px 16px', fontWeight: 600 }}>👥 학생 전체 관리</button>
             )}
-            <button className="btn btn-secondary" onClick={() => router.push('/teacher/students')} style={{ padding: '8px 16px', fontWeight: 600 }}>👥 학생 전체 관리</button>
             <div style={{ width: '1px', background: 'var(--color-border-default)', margin: '0 8px' }}></div>
             <button className="btn btn-secondary" onClick={() => router.push('/teacher/classes/new')}>+ 새 수업 생성</button>
             {(selectedClassId === 'library' || selectedClassId.startsWith('folder:')) && (
@@ -545,6 +609,9 @@ export default function TeacherDashboard() {
                           style={{ flex: 1, justifyContent: 'flex-start', textAlign: 'left', fontWeight: selectedClassId === `folder:${f.id}` ? 600 : 500, paddingLeft: '12px' }}
                         >
                           📁 {f.name}
+                        </button>
+                        <button onClick={() => openEditFolderModal(f.id, f.name)} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', padding: '4px', fontSize: '1rem' }} title="폴더 수정">
+                          ✏️
                         </button>
                         <button onClick={() => handleDeleteFolder(f.id, f.name)} style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', padding: '4px', fontSize: '1rem' }} title="폴더 삭제">
                           ✕
@@ -637,7 +704,7 @@ export default function TeacherDashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-md)' }}>
                   <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>학습 콘텐츠 목록</h3>
                   <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-                    {topics.length > 1 && (
+                    {selectedClassId !== 'library' && selectedSubject !== '전체' && hasSubjectPermission && topics.filter(t => !selectedClass || t.subject === selectedSubject).length > 1 && (
                       <button 
                         className={`btn ${isTopicReorderMode ? 'btn-primary' : 'btn-secondary'}`} 
                         style={{ fontSize: '0.8125rem', padding: '4px 12px' }} 
@@ -646,15 +713,17 @@ export default function TeacherDashboard() {
                         {isTopicReorderMode ? '✅ 순서 변경 완료' : '🔄 주제 순서 변경'}
                       </button>
                     )}
-                    <button className="btn btn-secondary" style={{ fontSize: '0.8125rem', padding: '4px 12px' }} onClick={() => setIsTopicModalOpen(true)}>+ 주제 추가</button>
+                    {selectedClassId !== 'library' && selectedSubject !== '전체' && hasSubjectPermission && (
+                      <button className="btn btn-secondary" style={{ fontSize: '0.8125rem', padding: '4px 12px' }} onClick={openCreateTopicModal}>+ 주제 추가</button>
+                    )}
                   </div>
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xl)' }}>
-                  {topics.map((topic, topicIndex) => (
+                  {selectedClassId !== 'library' && (!selectedClass || selectedSubject !== '전체') && topics.filter(t => !selectedClass || t.subject === selectedSubject).map((topic, topicIndex) => (
                     <div 
                       key={topic.id}
-                      draggable={isTopicReorderMode}
+                      draggable={isTopicReorderMode && hasSubjectPermission}
                       onDragStart={(e) => handleTopicDragStart(e, topicIndex)}
                       onDragOver={handleDragOver}
                       onDragEnter={(e) => handleTopicDragEnter(e, topicIndex, topic.id)}
@@ -676,7 +745,12 @@ export default function TeacherDashboard() {
                           )}
                           <h4 style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--color-primary)' }}>{topic.name}</h4>
                         </div>
-                        <button onClick={() => handleDeleteTopic(topic.id, topic.name)} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.875rem' }}>삭제</button>
+                        {topic.createdBy === user?.uid && (
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button onClick={() => { setEditingTopicId(topic.id); setNewTopicName(topic.name); setIsTopicModalOpen(true); }} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', fontSize: '0.875rem' }}>이름 변경</button>
+                            <button onClick={() => handleDeleteTopic(topic.id, topic.name)} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.875rem' }}>삭제</button>
+                          </div>
+                        )}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
                         {filteredContents.filter(c => c.topicId === topic.id).length === 0 ? (
@@ -687,72 +761,69 @@ export default function TeacherDashboard() {
                             return (
                               <div 
                                 key={content.id} 
-                        className="card" 
-                        draggable={selectedClass !== undefined || selectedClassId === 'library'}
-                        onDragStart={(e) => handleDragStart(e, index)}
-                        onDragOver={handleDragOver}
-                        onDragEnter={(e) => handleDragEnter(e, index)}
-                        onDragEnd={(e) => handleDragEnd(e)}
-                        style={{ 
-                          padding: 'var(--spacing-md)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)',
-                          opacity: draggedContentIndex === index ? 0.5 : 1,
-                        }}
-                      >
-                        {(selectedClass || selectedClassId === 'library') && (
-                          <div 
-                            style={{ cursor: 'grab', color: 'var(--color-text-muted)', fontSize: '1.25rem', paddingRight: '8px' }}
-                          >☰</div>
-                        )}
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-xs)' }}>
-                            {content.status === 'published' ? (
-                              <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#DCFCE7', color: '#166534', borderRadius: 'var(--radius-full)', fontWeight: 600 }}>배포됨</span>
-                            ) : (
-                              <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#FEF3C7', color: '#92400E', borderRadius: 'var(--radius-full)', fontWeight: 600 }}>임시저장</span>
-                            )}
-                            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{content.subject}</span>
-                          </div>
-                          <p style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{content.title}</p>
-                        </div>
-                        <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
-                          {(selectedClassId === 'library' || selectedClassId.startsWith('folder:')) && (
-                            <div style={{ position: 'relative' }}>
-                              <select 
-                                value={content.folderId || 'none'}
-                                onChange={(e) => handleMoveToFolder(content.id, e.target.value)}
+                                className="card" 
+                                draggable={hasSubjectPermission && !(selectedClass && selectedSubject === '전체')}
+                                onDragStart={(e) => handleDragStart(e, index)}
+                                onDragOver={handleDragOver}
+                                onDragEnter={(e) => handleDragEnter(e, index)}
+                                onDragEnd={(e) => handleDragEnd(e)}
                                 style={{ 
-                                  appearance: 'none',
-                                  padding: '6px 28px 6px 12px', 
-                                  fontSize: '0.8125rem', 
-                                  fontWeight: 600,
-                                  color: 'var(--color-text-secondary)',
-                                  background: '#F3F4F6',
-                                  border: '1px solid transparent',
-                                  borderRadius: 'var(--radius-full)',
-                                  outline: 'none',
-                                  cursor: 'pointer',
-                                  transition: 'all 0.2s ease',
+                                  padding: 'var(--spacing-md)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)',
+                                  opacity: draggedContentIndex === index ? 0.5 : 1,
                                 }}
-                                onMouseEnter={e => e.currentTarget.style.border = '1px solid #D1D5DB'}
-                                onMouseLeave={e => e.currentTarget.style.border = '1px solid transparent'}
                               >
-                                <option value="none">📁 폴더 없음</option>
-                                {folders.map(f => (
-                                  <option key={f.id} value={f.id}>📁 {f.name}</option>
-                                ))}
-                              </select>
-                              <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                                ▼
+                                {hasSubjectPermission && !(selectedClass && selectedSubject === '전체') && (
+                                  <div style={{ cursor: 'grab', color: 'var(--color-text-muted)', fontSize: '1.25rem', paddingRight: '8px' }}>☰</div>
+                                )}
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-xs)' }}>
+                                    <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-primary)', background: 'var(--color-primary-light)', padding: '2px 8px', borderRadius: '12px' }}>{content.subject}</span>
+                                  </div>
+                                  <p style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>{content.unit ? `${content.unit} - ${content.title}` : content.title}</p>
+                                </div>
+                                <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
+                                  {(selectedClassId === 'library' || selectedClassId.startsWith('folder:')) && (
+                                    <div style={{ position: 'relative' }}>
+                                      <select 
+                                        value={content.folderId || 'none'}
+                                        onChange={(e) => handleMoveToFolder(content.id, e.target.value)}
+                                        style={{ 
+                                          appearance: 'none',
+                                          padding: '6px 28px 6px 12px', 
+                                          fontSize: '0.8125rem', 
+                                          fontWeight: 600,
+                                          color: 'var(--color-text-secondary)',
+                                          background: '#F3F4F6',
+                                          border: '1px solid transparent',
+                                          borderRadius: 'var(--radius-full)',
+                                          outline: 'none',
+                                          cursor: 'pointer',
+                                          transition: 'all 0.2s ease',
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.border = '1px solid #D1D5DB'}
+                                        onMouseLeave={e => e.currentTarget.style.border = '1px solid transparent'}
+                                      >
+                                        <option value="none">📁 폴더 없음</option>
+                                        {folders.map(f => (
+                                          <option key={f.id} value={f.id}>📁 {f.name}</option>
+                                        ))}
+                                      </select>
+                                      <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                                        ▼
+                                      </div>
+                                    </div>
+                                  )}
+                                  {content.createdBy === user?.uid && (
+                                    <button className="btn" onClick={() => router.push(`/teacher/content/${content.id}/edit?from=${selectedClass ? 'class' : 'library'}`)} style={{ fontSize: '0.8125rem', background: selectedClass ? '#FEF08A' : '#F3E8FF', color: selectedClass ? '#854D0E' : '#6B21A8', border: 'none', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer' }}>{selectedClass ? '✏️ 수업 전용 편집' : '🚀 편집 및 배포'}</button>
+                                  )}
+                                  {content.status === 'published' && (
+                                    <button className="btn" onClick={() => router.push(`/teacher/content/${content.id}/stats`)} style={{ fontSize: '0.8125rem', background: '#E0E7FF', color: '#4338CA', border: 'none', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer' }}>📊 통계 보기</button>
+                                  )}
+                                  {content.createdBy === user?.uid && (
+                                    <button className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteContent(content.id, content.title); }} style={{ fontSize: '0.8125rem', color: 'var(--color-error)', border: '1px solid var(--color-error-bg)', background: 'var(--color-error-bg)' }}>삭제</button>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          )}
-                          <button className="btn" onClick={() => router.push(`/teacher/content/${content.id}/edit?from=${selectedClass ? 'class' : 'library'}`)} style={{ fontSize: '0.8125rem', background: selectedClass ? '#FEF08A' : '#F3E8FF', color: selectedClass ? '#854D0E' : '#6B21A8', border: 'none', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer' }}>{selectedClass ? '✏️ 수업 전용 편집' : '🚀 편집 및 배포'}</button>
-                          {content.status === 'published' && (
-                            <button className="btn" onClick={() => router.push(`/teacher/content/${content.id}/stats`)} style={{ fontSize: '0.8125rem', background: '#E0E7FF', color: '#4338CA', border: 'none', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer' }}>📊 통계 보기</button>
-                          )}
-                          <button className="btn btn-secondary" onClick={() => handleDeleteContent(content.id, content.title)} style={{ fontSize: '0.8125rem', color: 'var(--color-error)', border: '1px solid var(--color-error-bg)', background: 'var(--color-error-bg)' }}>삭제</button>
-                        </div>
-                      </div>
                             );
                           })
                         )}
@@ -765,22 +836,22 @@ export default function TeacherDashboard() {
                     onDragEnter={handleUncategorizedDragEnter}
                     onDrop={(e) => handleContentDropOnTopic(e, 'none')}
                   >
-                    {topics.length > 0 && <h4 style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-sm)', paddingBottom: 'var(--spacing-xs)', borderBottom: '2px solid var(--color-border-default)' }}>미분류 콘텐츠</h4>}
+                    {selectedClassId !== 'library' && (!selectedClass || selectedSubject !== '전체') && topics.filter(t => !selectedClass || t.subject === selectedSubject).length > 0 && <h4 style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-sm)', paddingBottom: 'var(--spacing-xs)', borderBottom: '2px solid var(--color-border-default)' }}>미분류 콘텐츠</h4>}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                      {filteredContents.filter(c => !c.topicId).length === 0 && topics.length > 0 ? (
+                      {(selectedClassId === 'library' || (selectedClass && selectedSubject === '전체') ? filteredContents : filteredContents.filter(c => !c.topicId || !topics.some(t => t.id === c.topicId))).length === 0 && selectedClassId !== 'library' && (!selectedClass || selectedSubject !== '전체') && topics.filter(t => !selectedClass || t.subject === selectedSubject).length > 0 ? (
                         <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', padding: 'var(--spacing-sm) 0' }}>미분류 콘텐츠가 없습니다.</p>
-                      ) : filteredContents.filter(c => !c.topicId).length === 0 && topics.length === 0 ? (
+                      ) : (selectedClassId === 'library' || (selectedClass && selectedSubject === '전체') ? filteredContents : filteredContents.filter(c => !c.topicId || !topics.some(t => t.id === c.topicId))).length === 0 ? (
                         <div style={{ padding: 'var(--spacing-xl)', textAlign: 'center', border: '1px dashed var(--color-border-default)', borderRadius: 'var(--radius-md)' }}>
                           <p style={{ color: 'var(--color-text-muted)' }}>아직 콘텐츠가 없습니다.</p>
                         </div>
                       ) : (
-                        filteredContents.filter(c => !c.topicId).map((content) => {
+                        (selectedClassId === 'library' || (selectedClass && selectedSubject === '전체') ? filteredContents : filteredContents.filter(c => !c.topicId || !topics.some(t => t.id === c.topicId))).map((content) => {
                           const index = contents.findIndex(c => c.id === content.id);
                           return (
                             <div 
                               key={content.id} 
                               className="card" 
-                              draggable={selectedClass !== undefined || selectedClassId === 'library'}
+                              draggable={hasSubjectPermission && !(selectedClass && selectedSubject === '전체')}
                               onDragStart={(e) => handleDragStart(e, index)}
                               onDragOver={handleDragOver}
                               onDragEnter={(e) => handleDragEnter(e, index)}
@@ -790,21 +861,14 @@ export default function TeacherDashboard() {
                                 opacity: draggedContentIndex === index ? 0.5 : 1,
                               }}
                             >
-                              {(selectedClass || selectedClassId === 'library') && (
-                                <div 
-                                  style={{ cursor: 'grab', color: 'var(--color-text-muted)', fontSize: '1.25rem', paddingRight: '8px' }}
-                                >☰</div>
+                              {hasSubjectPermission && !(selectedClass && selectedSubject === '전체') && (
+                                <div style={{ cursor: 'grab', color: 'var(--color-text-muted)', fontSize: '1.25rem', paddingRight: '8px' }}>☰</div>
                               )}
                               <div style={{ flex: 1 }}>
                                 <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-xs)' }}>
-                                  {content.status === 'published' ? (
-                                    <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#DCFCE7', color: '#166534', borderRadius: 'var(--radius-full)', fontWeight: 600 }}>배포됨</span>
-                                  ) : (
-                                    <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#FEF3C7', color: '#92400E', borderRadius: 'var(--radius-full)', fontWeight: 600 }}>임시저장</span>
-                                  )}
-                                  <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{content.subject}</span>
+                                  <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-primary)', background: 'var(--color-primary-light)', padding: '2px 8px', borderRadius: '12px' }}>{content.subject}</span>
                                 </div>
-                                <p style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{content.title}</p>
+                                <p style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>{content.unit ? `${content.unit} - ${content.title}` : content.title}</p>
                               </div>
                               <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
                                 {(selectedClassId === 'library' || selectedClassId.startsWith('folder:')) && (
@@ -838,11 +902,15 @@ export default function TeacherDashboard() {
                                     </div>
                                   </div>
                                 )}
-                                <button className="btn" onClick={() => router.push(`/teacher/content/${content.id}/edit?from=${selectedClass ? 'class' : 'library'}`)} style={{ fontSize: '0.8125rem', background: selectedClass ? '#FEF08A' : '#F3E8FF', color: selectedClass ? '#854D0E' : '#6B21A8', border: 'none', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer' }}>{selectedClass ? '✏️ 수업 전용 편집' : '🚀 편집 및 배포'}</button>
+                                {content.createdBy === user?.uid && (
+                                  <button className="btn" onClick={() => router.push(`/teacher/content/${content.id}/edit?from=${selectedClass ? 'class' : 'library'}`)} style={{ fontSize: '0.8125rem', background: selectedClass ? '#FEF08A' : '#F3E8FF', color: selectedClass ? '#854D0E' : '#6B21A8', border: 'none', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer' }}>{selectedClass ? '✏️ 수업 전용 편집' : '🚀 편집 및 배포'}</button>
+                                )}
                                 {content.status === 'published' && (
                                   <button className="btn" onClick={() => router.push(`/teacher/content/${content.id}/stats`)} style={{ fontSize: '0.8125rem', background: '#E0E7FF', color: '#4338CA', border: 'none', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer' }}>📊 통계 보기</button>
                                 )}
-                                <button className="btn btn-secondary" onClick={() => handleDeleteContent(content.id, content.title)} style={{ fontSize: '0.8125rem', color: 'var(--color-error)', border: '1px solid var(--color-error-bg)', background: 'var(--color-error-bg)' }}>삭제</button>
+                                {content.createdBy === user?.uid && (
+                                  <button className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteContent(content.id, content.title); }} style={{ fontSize: '0.8125rem', color: 'var(--color-error)', border: '1px solid var(--color-error-bg)', background: 'var(--color-error-bg)' }}>삭제</button>
+                                )}
                               </div>
                             </div>
                           );
@@ -865,9 +933,9 @@ export default function TeacherDashboard() {
       {isFolderModalOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.4)', backdropFilter: 'blur(4px)' }}>
           <div className="card" style={{ width: '100%', maxWidth: 400, padding: 'var(--spacing-xl)', boxShadow: 'var(--shadow-lg)' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-xs)', color: 'var(--color-text-primary)' }}>새 폴더 생성</h2>
-            <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem', marginBottom: 'var(--spacing-lg)' }}>콘텐츠를 분류할 폴더 이름을 입력해 주세요.</p>
-            <form onSubmit={submitCreateFolder}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-xs)', color: 'var(--color-text-primary)' }}>{editingFolderId ? '폴더 이름 수정' : '새 폴더 생성'}</h2>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem', marginBottom: 'var(--spacing-lg)' }}>{editingFolderId ? '변경할 폴더 이름을 입력해 주세요.' : '콘텐츠를 분류할 폴더 이름을 입력해 주세요.'}</p>
+            <form onSubmit={submitFolderForm}>
               <div style={{ marginBottom: 'var(--spacing-lg)' }}>
                 <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: 'var(--spacing-xs)' }}>폴더 이름</label>
                 <input 
@@ -883,7 +951,7 @@ export default function TeacherDashboard() {
               <div style={{ display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setIsFolderModalOpen(false)} disabled={isCreatingFolder}>취소</button>
                 <button type="submit" className="btn btn-primary" disabled={!newFolderName.trim() || isCreatingFolder}>
-                  {isCreatingFolder ? '생성 중...' : '폴더 생성'}
+                  {isCreatingFolder ? (editingFolderId ? '수정 중...' : '생성 중...') : (editingFolderId ? '수정 완료' : '폴더 생성')}
                 </button>
               </div>
             </form>
@@ -894,8 +962,8 @@ export default function TeacherDashboard() {
       {isTopicModalOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.4)', backdropFilter: 'blur(4px)' }}>
           <div className="card" style={{ width: '100%', maxWidth: 400, padding: 'var(--spacing-xl)', boxShadow: 'var(--shadow-lg)' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-xs)', color: 'var(--color-text-primary)' }}>새 주제(단원) 추가</h2>
-            <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem', marginBottom: 'var(--spacing-lg)' }}>콘텐츠를 묶을 주제 또는 단원명을 입력해 주세요.</p>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-xs)', color: 'var(--color-text-primary)' }}>{editingTopicId ? '주제 이름 수정' : '새 주제(단원) 추가'}</h2>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem', marginBottom: 'var(--spacing-lg)' }}>{editingTopicId ? '변경할 주제(단원)명을 입력해 주세요.' : '콘텐츠를 묶을 주제 또는 단원명을 입력해 주세요.'}</p>
             <form onSubmit={submitCreateTopic}>
               <div style={{ marginBottom: 'var(--spacing-lg)' }}>
                 <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: 'var(--spacing-xs)' }}>주제명</label>
@@ -912,7 +980,7 @@ export default function TeacherDashboard() {
               <div style={{ display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setIsTopicModalOpen(false)} disabled={isCreatingTopic}>취소</button>
                 <button type="submit" className="btn btn-primary" disabled={!newTopicName.trim() || isCreatingTopic}>
-                  {isCreatingTopic ? '생성 중...' : '주제 추가'}
+                  {isCreatingTopic ? (editingTopicId ? '수정 중...' : '생성 중...') : (editingTopicId ? '수정 완료' : '주제 추가')}
                 </button>
               </div>
             </form>
@@ -923,23 +991,25 @@ export default function TeacherDashboard() {
       {deleteModal?.isOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'blur(4px)' }}>
           <div className="card" style={{ width: '100%', maxWidth: 400, padding: 'var(--spacing-xl)', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--color-border-default)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)' }}>
-              <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--color-error-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-error)', fontSize: '1.25rem' }}>
-                ⚠️
-              </div>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                {deleteModal.type === 'folder' ? '폴더 삭제 확인' : '콘텐츠 삭제 확인'}
-              </h2>
-            </div>
-            
-            <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9375rem', lineHeight: 1.6, marginBottom: 'var(--spacing-lg)' }}>
-              <strong style={{ color: 'var(--color-text-primary)' }}>&apos;{deleteModal.name}&apos;</strong> {deleteModal.type === 'folder' ? '폴더를 삭제하시겠습니까?' : '자료를 정말 삭제하시겠습니까?'}
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-md)', color: 'var(--color-text-primary)', textAlign: 'center' }}>
+              {deleteModal.type === 'folder' ? '폴더 삭제' : deleteModal.type === 'topic' ? '주제 삭제' : '콘텐츠 삭제'}
+            </h2>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9375rem', marginBottom: 'var(--spacing-lg)', lineHeight: 1.5, textAlign: 'center' }}>
+              &apos;{deleteModal.name}&apos;을(를) 삭제하시겠습니까?
             </p>
 
             {deleteModal.type === 'folder' && (
               <div style={{ background: '#FEF2F2', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-lg)', border: '1px solid #FECACA' }}>
                 <p style={{ color: '#991B1B', fontSize: '0.875rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  주의: 폴더를 삭제하면 내부에 있는 모든 콘텐츠도 함께 영구 삭제됩니다.
+                  주의: 폴더를 삭제해도 내부에 있는 모든 콘텐츠는 삭제되지 않고 미분류로 이동됩니다.
+                </p>
+              </div>
+            )}
+            
+            {deleteModal.type === 'topic' && (
+              <div style={{ background: '#FEF2F2', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-lg)', border: '1px solid #FECACA' }}>
+                <p style={{ color: '#991B1B', fontSize: '0.875rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  주의: 주제를 삭제해도 내부에 있는 모든 콘텐츠는 삭제되지 않고 미분류로 이동됩니다.
                 </p>
               </div>
             )}
@@ -960,6 +1030,22 @@ export default function TeacherDashboard() {
               >
                 삭제하기
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alert Modal */}
+      {alertMessage && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: 400, textAlign: 'center' }}>
+            <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-md)' }}>🚫</div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-md)' }}>알림</h2>
+            <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-xl)', lineHeight: 1.5 }}>
+              {alertMessage}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <button className="btn btn-primary" onClick={() => setAlertMessage(null)}>확인</button>
             </div>
           </div>
         </div>

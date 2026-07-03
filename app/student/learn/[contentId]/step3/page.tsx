@@ -20,6 +20,7 @@ export default function Step3Page() {
   const [quizzes, setQuizzes] = useState<QuizItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [correctAnswersCount, setCorrectAnswersCount] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
@@ -35,26 +36,31 @@ export default function Step3Page() {
 
   useEffect(() => {
     if (!contentId) return;
+    let unsub: (() => void) | null = null;
     getContentDoc(contentId).then(doc => {
       if (doc) {
         setContentDoc(doc);
         setQuizzes(doc.step3_quiz_list || []);
       }
       setLoading(false);
+      unsub = subscribeLeaderboard(contentId, (newScores) => {
+        setScores(newScores);
+      }, doc?.classId);
     });
-
-    const unsub = subscribeLeaderboard(contentId, (newScores) => {
-      setScores(newScores);
-    });
-    return () => unsub();
+    return () => { if (unsub) unsub(); };
   }, [contentId]);
 
   const currentQuiz = quizzes[currentIndex];
 
   const handleOptionClick = (index: number) => {
-    if (selectedOption !== null) return; // already answered
+    if (isAnswerRevealed) return; // already confirmed, can't change
     setSelectedOption(index);
-    const correct = index === currentQuiz.answer;
+  };
+
+  const handleCheckAnswer = () => {
+    if (selectedOption === null || isAnswerRevealed) return;
+    setIsAnswerRevealed(true);
+    const correct = selectedOption === currentQuiz.answer;
     setIsCorrect(correct);
     if (correct) {
       setCorrectAnswersCount(prev => prev + 1);
@@ -68,6 +74,7 @@ export default function Step3Page() {
     if (currentIndex < quizzes.length - 1) {
       setCurrentIndex(prev => prev + 1);
       setSelectedOption(null);
+      setIsAnswerRevealed(false);
       setIsCorrect(null);
     } else {
       finishStep();
@@ -238,7 +245,7 @@ export default function Step3Page() {
                 let bg = 'var(--color-bg-primary)';
                 let icon = '';
                 
-                if (selectedOption !== null) {
+                if (isAnswerRevealed) {
                   if (i === currentQuiz.answer) {
                     border = '2px solid var(--color-success)';
                     bg = 'var(--color-success-bg)';
@@ -248,13 +255,16 @@ export default function Step3Page() {
                     bg = 'var(--color-error-bg)';
                     icon = '❌ ';
                   }
+                } else if (i === selectedOption) {
+                  border = '2px solid var(--color-primary)';
+                  bg = 'var(--color-primary-light)';
                 }
 
                 return (
-                  <div key={i} onClick={() => handleOptionClick(i)} style={{ padding: 'var(--spacing-md)', border, background: bg, borderRadius: 'var(--radius-md)', cursor: selectedOption === null ? 'pointer' : 'default', transition: 'all 0.2s ease' }}>
+                  <div key={i} onClick={() => handleOptionClick(i)} style={{ padding: 'var(--spacing-md)', border, background: bg, borderRadius: 'var(--radius-md)', cursor: isAnswerRevealed ? 'default' : 'pointer', transition: 'all 0.2s ease' }}>
                     <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
                       {icon && <span style={{ fontSize: '1.125rem' }}>{icon}</span>}
-                      <span style={{ fontWeight: selectedOption !== null && (i === currentQuiz.answer || i === selectedOption) ? 600 : 500 }}>
+                      <span style={{ fontWeight: isAnswerRevealed && (i === currentQuiz.answer || i === selectedOption) ? 600 : 500 }}>
                         {opt}
                       </span>
                     </div>
@@ -263,16 +273,31 @@ export default function Step3Page() {
               })}
             </div>
 
-            {selectedOption !== null && currentQuiz.explanation && (
+            {isAnswerRevealed && currentQuiz.explanation && (
               <div style={{ marginTop: 'var(--spacing-md)', padding: 'var(--spacing-md)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)', fontSize: '0.9375rem', color: 'var(--color-text-secondary)' }}>
                 <strong>해설:</strong> {currentQuiz.explanation}
               </div>
             )}
             
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--spacing-xl)', paddingTop: 'var(--spacing-md)', borderTop: '1px solid var(--color-border-default)' }}>
-              <button className="btn btn-primary" style={{ padding: '0 var(--spacing-lg)' }} onClick={handleNext} disabled={selectedOption === null}>
-                {currentIndex < quizzes.length - 1 ? '다음 문제 →' : '학습 완료 🎉'}
-              </button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-sm)', marginTop: 'var(--spacing-xl)', paddingTop: 'var(--spacing-md)', borderTop: '1px solid var(--color-border-default)' }}>
+              {!isAnswerRevealed ? (
+                <button
+                  className="btn btn-primary"
+                  style={{ padding: '0 var(--spacing-lg)' }}
+                  onClick={handleCheckAnswer}
+                  disabled={selectedOption === null}
+                >
+                  정답 확인
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  style={{ padding: '0 var(--spacing-lg)' }}
+                  onClick={handleNext}
+                >
+                  {currentIndex < quizzes.length - 1 ? '다음 문제 →' : '학습 완료 🎉'}
+                </button>
+              )}
             </div>
           </div>
         </div>

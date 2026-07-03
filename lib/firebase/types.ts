@@ -5,7 +5,7 @@ export type QuizType = 'blank' | 'matching';
 
 export interface WhitelistDoc {
   id: string; type: 'whitelist'; role: UserRole; displayName: string; email: string;
-  classId?: string; registeredAt: Timestamp; registeredBy?: string; updatedAt?: Timestamp;
+  classId?: string; classIds?: string[]; registeredAt: Timestamp; registeredBy?: string; updatedAt?: Timestamp;
   // 교사 필드
   homeroom?: string;
   subject?: string;
@@ -25,7 +25,7 @@ export interface FolderDoc {
   id: string; type: 'folder'; name: string; createdBy: string; createdAt: Timestamp;
 }
 export interface TopicDoc {
-  id: string; type: 'topic'; parentId: string; name: string; orderIndex?: number; createdAt: Timestamp;
+  id: string; type: 'topic'; parentId: string; name: string; orderIndex?: number; createdAt: Timestamp; createdBy: string; subject?: string;
 }
 export interface Keyword { keyword: string; description: string; }
 export interface QuizItem {

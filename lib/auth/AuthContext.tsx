@@ -2,8 +2,11 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import type { WhitelistDoc, UserRole } from '@/lib/firebase/types';
 import { auth, googleProvider } from '@/lib/firebase/client';
-import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getWhitelistDoc } from '@/lib/firebase/queries';
+import { signInWithPopup, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { deleteDoc, doc } from 'firebase/firestore';
+import { db } from '@/lib/firebase/client';
+import { getWhitelistDoc, createWhitelistDoc } from '@/lib/firebase/queries';
+import { Modal } from '@/components/ui/Modal';
 
 interface AuthContextValue {
   user: User | null;
@@ -12,6 +15,7 @@ interface AuthContextValue {
   loading: boolean;
   loginWithGoogle: () => Promise<void>;
   loginAsMock: (role: UserRole, email: string, name: string, options?: any) => Promise<void>;
+  loginAsNewMock: () => Promise<void>;
   logout: () => void;
 }
 
@@ -21,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<WhitelistDoc | null>(null);
   const [loading, setLoading] = useState(true);
+  const [errorAlert, setErrorAlert] = useState<{ title: string; message: string } | null>(null);
 
   useEffect(() => {
     // Check for mock session first
@@ -72,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginAsMock = async (role: UserRole, email: string, name: string, options?: any) => {
     setLoading(true);
     try {
+      await signInAnonymously(auth);
       const { createWhitelistDoc, getWhitelistDoc } = await import('@/lib/firebase/queries');
       let doc = await getWhitelistDoc(email);
       if (!doc) {
@@ -84,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           data.grade = options?.grade || '3';
           data.classNumber = options?.classNumber || '1';
           data.studentNumber = options?.studentNumber || (email.replace(/[^0-9]/g, '') || '1');
+          data.classIds = [];
         }
         await createWhitelistDoc(email, data);
         doc = await getWhitelistDoc(email);
@@ -93,23 +100,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       document.cookie = 'auth=true; path=/; max-age=86400';
       setUser({ email, uid: email } as User);
       setProfile(doc);
-    } catch (err: any) {
-      console.error('Mock login error:', err);
-      alert('데이터베이스 연결 또는 권한 문제가 발생했습니다. Firebase 콘솔의 Firestore 보안 규칙을 확인해주세요.\n\n에러 상세: ' + err.message);
+      if (role === 'admin') window.location.href = '/admin/users';
+      else if (role === 'teacher') window.location.href = '/teacher/dashboard';
+      else window.location.href = '/student/dashboard';
+    } catch (error: any) {
+      console.error(error);
+      alert('목업 로그인 실패: ' + error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const loginAsNewMock = () => {
+  const loginAsNewMock = async () => {
     setLoading(true);
-    const email = 'new_user@mock.com';
-    const mockSession = { email, profile: null };
-    localStorage.setItem('eduapp_mock_session', JSON.stringify(mockSession));
-    document.cookie = 'auth=true; path=/; max-age=86400';
-    setUser({ email, uid: email, displayName: '최초 로그인 교사 테스트' } as any);
-    setProfile(null);
-    setLoading(false);
+    try {
+      const email = 'demo@mock.com';
+      // Firebase에 실제로 로그인 시도 (사전에 Firebase Console에서 생성 필요)
+      const credential = await signInWithEmailAndPassword(auth, email, 'demo2026!');
+      const firebaseUser = credential.user;
+      
+      try {
+        await deleteDoc(doc(db, 'whitelist', email));
+      } catch (e) {
+        console.error('Failed to reset mock profile', e);
+      }
+      
+      const mockSession = { email, profile: null };
+      localStorage.setItem('eduapp_mock_session', JSON.stringify(mockSession));
+      document.cookie = 'auth=true; path=/; max-age=86400';
+      setUser({ email, uid: firebaseUser.uid, displayName: '최초 로그인 교사 테스트' } as any);
+      setProfile(null);
+      
+      window.location.href = '/signup';
+    } catch (err: any) {
+      console.error('Demo login error:', err);
+      setErrorAlert({
+        title: '체험용 계정 설정 안내',
+        message: '체험용 계정 로그인을 위해 Firebase 콘솔에서 demo@mock.com (비밀번호: demo2026!) 계정을 생성하고 이메일/비밀번호 로그인을 활성화해 주세요!'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const logout = async () => {
@@ -122,6 +153,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{ user, profile, role: profile?.role ?? null, loading, loginWithGoogle, loginAsMock, loginAsNewMock, logout }}>
       {children}
+      <Modal open={!!errorAlert} title={errorAlert?.title || '오류'} onClose={() => setErrorAlert(null)} footer={
+        <button className="btn btn-primary" onClick={() => setErrorAlert(null)}>확인</button>
+      }>
+        <p style={{ whiteSpace: 'pre-wrap' }}>{errorAlert?.message}</p>
+      </Modal>
     </AuthContext.Provider>
   );
 }

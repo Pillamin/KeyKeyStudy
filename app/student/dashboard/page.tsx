@@ -7,14 +7,14 @@ import type { ContentDoc, ScoreDoc, ClassDoc, TopicDoc } from '@/lib/firebase/ty
 import Navbar from '@/components/layout/Navbar';
 import { LeaderboardSlide } from '@/components/leaderboard/LeaderboardSlide';
 
-function LeaderboardModal({ contentId, contentTitle, onClose }: { contentId: string, contentTitle: string, onClose: () => void }) {
+function LeaderboardModal({ contentId, contentTitle, classId, onClose }: { contentId: string, contentTitle: string, classId?: string, onClose: () => void }) {
   const [scores, setScores] = useState<ScoreDoc[]>([]);
   const [tab, setTab] = useState<1 | 2 | 3 | 'final'>('final');
 
   useEffect(() => {
-    const unsub = subscribeLeaderboard(contentId, setScores);
+    const unsub = subscribeLeaderboard(contentId, setScores, classId);
     return () => unsub();
-  }, [contentId]);
+  }, [contentId, classId]);
 
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--spacing-lg)' }} onClick={onClose}>
@@ -44,6 +44,9 @@ export default function StudentDashboard() {
   const [contents, setContents] = useState<ContentDoc[]>([]);
   const [topics, setTopics] = useState<TopicDoc[]>([]);
   const [scores, setScores] = useState<ScoreDoc[]>([]);
+  const [classDocs, setClassDocs] = useState<ClassDoc[]>([]);
+  const [selectedClassId, setSelectedClassId] = useState<string>('all');
+  const [expandedClassId, setExpandedClassId] = useState<string | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<string>('전체');
   const [classCodeInput, setClassCodeInput] = useState('');
   const [joining, setJoining] = useState(false);
@@ -57,28 +60,45 @@ export default function StudentDashboard() {
   }, [user, loading, router]);
 
   useEffect(() => {
-    if (profile?.classId) {
-      Promise.all([
-        getPublishedContentsByClass(profile.classId),
-        getClassDoc(profile.classId),
-        getTopicsByParent(profile.classId)
-      ]).then(([list, classDoc, topicsList]) => {
-        if (classDoc && classDoc.contentOrder) {
-          const orderMap = new Map(classDoc.contentOrder.map((id, index) => [id, index]));
-          list.sort((a, b) => {
-            const aOrder = orderMap.has(a.id) ? orderMap.get(a.id)! : 999999;
-            const bOrder = orderMap.has(b.id) ? orderMap.get(b.id)! : 999999;
-            return aOrder - bOrder;
-          });
-        }
-        setContents(list);
-        setTopics(topicsList);
+    const classIds = profile?.classIds || (profile?.classId ? [profile.classId] : []);
+    if (classIds.length > 0) {
+      Promise.all(classIds.map(cid => Promise.all([
+        getPublishedContentsByClass(cid),
+        getClassDoc(cid),
+        getTopicsByParent(cid)
+      ]))).then(results => {
+        let allContents: ContentDoc[] = [];
+        let allTopics: TopicDoc[] = [];
+        let allClasses: ClassDoc[] = [];
+
+        results.forEach(([list, classDoc, topicsList]) => {
+          if (classDoc && classDoc.contentOrder) {
+            allClasses.push(classDoc);
+            const orderMap = new Map(classDoc.contentOrder.map((id, index) => [id, index]));
+            list.sort((a, b) => {
+              const aOrder = orderMap.has(a.id) ? orderMap.get(a.id)! : 999999;
+              const bOrder = orderMap.has(b.id) ? orderMap.get(b.id)! : 999999;
+              return aOrder - bOrder;
+            });
+          } else if (classDoc) {
+            allClasses.push(classDoc);
+          }
+          allContents = [...allContents, ...list];
+          allTopics = [...allTopics, ...topicsList];
+        });
+
+        setContents(allContents);
+        setTopics(allTopics);
+        setClassDocs(allClasses.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis()));
       });
     }
-  }, [profile?.classId]);
+  }, [profile?.classIds, profile?.classId]);
 
-  const subjects = ['전체', ...Array.from(new Set(contents.map(c => c.subject)))];
-  const filteredContents = selectedSubject === '전체' ? contents : contents.filter(c => c.subject === selectedSubject);
+  const filteredContents = contents.filter(c => {
+    if (selectedClassId !== 'all' && c.classId !== selectedClassId) return false;
+    if (selectedSubject !== '전체' && c.subject !== selectedSubject) return false;
+    return true;
+  });
 
   const handleJoinClass = async () => {
     if (!classCodeInput || !user?.email) return;
@@ -86,13 +106,21 @@ export default function StudentDashboard() {
     try {
       const classDoc = await getClassByCode(classCodeInput);
       if (classDoc) {
-        await updateWhitelistDoc(user.email, { classId: classDoc.id });
+        const currentClassIds = profile?.classIds || (profile?.classId ? [profile.classId] : []);
+        if (currentClassIds.includes(classDoc.id)) {
+          alert('이미 등록된 수업입니다.');
+          setJoining(false);
+          return;
+        }
+        const newClassIds = [...currentClassIds, classDoc.id];
+        await updateWhitelistDoc(user.email, { classIds: newClassIds, classId: currentClassIds.length === 0 ? classDoc.id : profile?.classId });
         
         // Update mock session in localStorage to reflect the new classId
         const mockSession = localStorage.getItem('eduapp_mock_session');
         if (mockSession) {
           const parsed = JSON.parse(mockSession);
-          parsed.profile.classId = classDoc.id;
+          parsed.profile.classIds = newClassIds;
+          if (currentClassIds.length === 0) parsed.profile.classId = classDoc.id;
           localStorage.setItem('eduapp_mock_session', JSON.stringify(parsed));
         }
 
@@ -116,7 +144,7 @@ export default function StudentDashboard() {
 
       <main className="container" style={{ paddingTop: 'var(--spacing-xl)', paddingBottom: 'var(--spacing-xl)', maxWidth: '900px', margin: '0 auto', width: '100%', paddingLeft: 'var(--spacing-lg)', paddingRight: 'var(--spacing-lg)' }}>
         
-        {user?.email === 'new_user@mock.com' && (
+        {(user?.email === 'new_user@mock.com' || user?.email === 'demo@mock.com') && (
           <div className="fade-in" style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E3A8A', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-lg)', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '1.25rem' }}>💡</span>
             <div style={{ fontSize: '0.9375rem', fontWeight: 600, lineHeight: 1.5 }}>
@@ -162,7 +190,7 @@ export default function StudentDashboard() {
           })()}
         </div>
 
-        {!profile?.classId ? (
+        {(!profile?.classId && (!profile?.classIds || profile.classIds.length === 0)) ? (
           <div className="card" style={{ padding: 'var(--spacing-2xl)', textAlign: 'center', marginTop: 'var(--spacing-xl)' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 'var(--spacing-sm)' }}>🏫 아직 수업에 등록되지 않았습니다.</h2>
             <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-lg)' }}>선생님께서 알려주신 6자리 참여 코드를 입력해주세요.</p>
@@ -188,28 +216,117 @@ export default function StudentDashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 'var(--spacing-xl)', alignItems: 'start' }}>
               
               {/* Sidebar Menu */}
-              <div className="card" style={{ padding: 'var(--spacing-md)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
-                <h3 style={{ fontSize: '0.875rem', fontWeight: 800, color: 'var(--color-text-muted)', marginBottom: 'var(--spacing-xs)', padding: '0 var(--spacing-sm)' }}>수업별 모아보기</h3>
-                {subjects.map(subject => (
+              <div className="card" style={{ width: 260, padding: 'var(--spacing-md)' }}>
+                <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: 'var(--spacing-md)', paddingLeft: 'var(--spacing-xs)' }}>
+                  수업 및 과목별 모아보기
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
                   <button 
-                    key={subject} 
-                    onClick={() => setSelectedSubject(subject)}
-                    style={{
+                    className="menu-item"
+                    style={{ 
                       textAlign: 'left',
-                      padding: 'var(--spacing-sm)',
-                      background: selectedSubject === subject ? 'var(--color-primary-light)' : 'transparent',
-                      color: selectedSubject === subject ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                      background: selectedClassId === 'all' && selectedSubject === '전체' ? 'var(--color-primary-light)' : 'transparent',
+                      color: selectedClassId === 'all' && selectedSubject === '전체' ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                      fontWeight: selectedClassId === 'all' && selectedSubject === '전체' ? 700 : 500,
+                      padding: '10px 16px',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
                       border: 'none',
-                      borderRadius: 'var(--radius-sm)',
-                      fontWeight: selectedSubject === subject ? 700 : 500,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      fontSize: '0.9375rem'
+                      cursor: 'pointer'
                     }}
+                    onClick={() => { setSelectedClassId('all'); setSelectedSubject('전체'); }}
                   >
-                    {subject === '전체' ? '🌐 전체 학습' : `📚 ${subject}`}
+                    🌐 모든 수업 전체 보기
                   </button>
-                ))}
+                  
+                  {classDocs.map(cDoc => {
+                    const classContents = contents.filter(c => c.classId === cDoc.id);
+                    const classSubjects = Array.from(new Set(classContents.map(c => c.subject)));
+                    const isExpanded = expandedClassId === cDoc.id || selectedClassId === cDoc.id;
+                    
+                    return (
+                      <div key={cDoc.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: 'var(--spacing-xs)' }}>
+                        <button 
+                          className="menu-item"
+                          style={{ 
+                            textAlign: 'left',
+                            background: selectedClassId === cDoc.id && selectedSubject === '전체' ? 'var(--color-bg-secondary)' : 'transparent',
+                            color: selectedClassId === cDoc.id ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                            fontWeight: selectedClassId === cDoc.id ? 700 : 600,
+                            padding: '8px 12px',
+                            borderRadius: 'var(--radius-md)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            border: 'none',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => {
+                            setExpandedClassId(isExpanded ? null : cDoc.id);
+                            setSelectedClassId(cDoc.id);
+                            setSelectedSubject('전체');
+                          }}
+                        >
+                          <span>🏫 {cDoc.className}</span>
+                          <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{isExpanded ? '▼' : '▶'}</span>
+                        </button>
+                        
+                        {isExpanded && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '24px', marginTop: '4px' }}>
+                            {classSubjects.map(subject => (
+                              <button 
+                                key={`${cDoc.id}-${subject}`}
+                                className="menu-item"
+                                style={{ 
+                                  textAlign: 'left',
+                                  background: selectedClassId === cDoc.id && selectedSubject === subject ? 'var(--color-primary-light)' : 'transparent',
+                                  color: selectedClassId === cDoc.id && selectedSubject === subject ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                                  fontWeight: selectedClassId === cDoc.id && selectedSubject === subject ? 700 : 500,
+                                  padding: '6px 12px',
+                                  borderRadius: 'var(--radius-md)',
+                                  fontSize: '0.875rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  border: 'none',
+                                  cursor: 'pointer'
+                                }}
+                                onClick={() => {
+                                  setSelectedClassId(cDoc.id);
+                                  setSelectedSubject(subject);
+                                }}
+                              >
+                                📚 {subject}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <div style={{ marginTop: 'var(--spacing-md)', paddingTop: 'var(--spacing-md)', borderTop: '1px solid var(--color-border-default)' }}>
+                  <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-xs)', paddingLeft: 'var(--spacing-xs)' }}>
+                    새로운 수업 등록
+                  </div>
+                  <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                    <input 
+                      className="form-input" 
+                      placeholder="참여 코드 6자리" 
+                      value={classCodeInput} 
+                      onChange={e => setClassCodeInput(e.target.value)} 
+                      maxLength={6}
+                      style={{ flex: 1, fontSize: '0.875rem', padding: '8px 10px', letterSpacing: '1px', textAlign: 'center' }}
+                    />
+                    <button className="btn btn-primary" onClick={handleJoinClass} disabled={joining || classCodeInput.length < 6} style={{ padding: '8px 12px', fontSize: '0.875rem', fontWeight: 600 }}>
+                      등록
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Main Content List */}
@@ -303,6 +420,7 @@ export default function StudentDashboard() {
         <LeaderboardModal 
           contentId={selectedLeaderboardContent.id} 
           contentTitle={selectedLeaderboardContent.title}
+          classId={selectedLeaderboardContent.classId}
           onClose={() => setSelectedLeaderboardContent(null)} 
         />
       )}

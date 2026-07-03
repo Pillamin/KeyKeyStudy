@@ -6,8 +6,31 @@ interface RankedScore extends ScoreDoc { rank: number; displayScore: number; }
 export function LeaderboardSlide({ scores, step, title }: LeaderboardSlideProps) {
   const [rankedScores, setRankedScores] = useState<RankedScore[]>([]);
   useEffect(() => {
-    const sorted = [...scores]
-      .filter((s) => step === 1 ? s.step1_score !== undefined : step === 2 ? s.step2_score !== undefined : step === 3 ? s.step3_score !== undefined : (s.step1_score !== undefined && s.step2_score !== undefined && s.step3_score !== undefined && s.total_score !== undefined))
+    // Deduplicate by userId, keep the entry with the highest relevant score
+    const uniqueMap = new Map<string, ScoreDoc>();
+    scores.forEach(s => {
+      const key = s.userId || s.studentEmail;
+      const existing = uniqueMap.get(key);
+      if (!existing) {
+        uniqueMap.set(key, s);
+      } else {
+        const getScore = (doc: ScoreDoc) =>
+          step === 1 ? (doc.step1_score ?? 0) :
+          step === 2 ? (doc.step2_score ?? 0) :
+          step === 3 ? (doc.step3_score ?? 0) :
+          (doc.total_score ?? 0);
+        if (getScore(s) > getScore(existing)) uniqueMap.set(key, s);
+      }
+    });
+    const deduplicated = Array.from(uniqueMap.values());
+
+    const sorted = deduplicated
+      .filter((s) => {
+        if (step === 1) return !!s.step1_completedAt;
+        if (step === 2) return !!s.step2_completedAt;
+        if (step === 3) return !!s.step3_completedAt;
+        return !!s.step1_completedAt && !!s.step2_completedAt && !!s.step3_completedAt;
+      })
       .sort((a, b) => {
         if (step === 1) return (b.step1_score ?? 0) - (a.step1_score ?? 0);
         if (step === 2) return (b.step2_score ?? 0) - (a.step2_score ?? 0);

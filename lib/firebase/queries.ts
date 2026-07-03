@@ -1,6 +1,6 @@
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
-  query, where, orderBy, onSnapshot, Timestamp 
+  query, where, orderBy, onSnapshot, Timestamp, deleteField, arrayRemove 
 } from 'firebase/firestore';
 import { db } from './client';
 import type { WhitelistDoc, ClassDoc, FolderDoc, TopicDoc, ContentDoc, ScoreDoc } from './types';
@@ -87,15 +87,26 @@ export async function deleteClass(classId: string): Promise<void> {
   await Promise.all(tSnap.docs.map(d => deleteDoc(d.ref)));
   
   // Unassign students
-  const wq = query(collection(db, 'whitelist'), where('classId', '==', classId));
-  const wSnap = await getDocs(wq);
-  await Promise.all(wSnap.docs.map(d => updateDoc(d.ref, { classId: '' })));
+  const wq1 = query(collection(db, 'whitelist'), where('classId', '==', classId));
+  const wq2 = query(collection(db, 'whitelist'), where('classIds', 'array-contains', classId));
+  const [wSnap1, wSnap2] = await Promise.all([getDocs(wq1), getDocs(wq2)]);
+  const docsMap = new Map();
+  wSnap1.docs.forEach(d => docsMap.set(d.id, d));
+  wSnap2.docs.forEach(d => docsMap.set(d.id, d));
+  await Promise.all(Array.from(docsMap.values()).map(d => updateDoc(d.ref, { 
+    classId: d.data().classId === classId ? '' : d.data().classId,
+    classIds: arrayRemove(classId) 
+  })));
 }
 
 export async function getStudentsByClass(classId: string): Promise<WhitelistDoc[]> {
-  const q = query(collection(db, 'whitelist'), where('role', '==', 'student'), where('classId', '==', classId));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => mapDoc<WhitelistDoc>(d));
+  const q1 = query(collection(db, 'whitelist'), where('role', '==', 'student'), where('classId', '==', classId));
+  const q2 = query(collection(db, 'whitelist'), where('role', '==', 'student'), where('classIds', 'array-contains', classId));
+  const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+  const docsMap = new Map();
+  snap1.docs.forEach(d => docsMap.set(d.id, mapDoc<WhitelistDoc>(d)));
+  snap2.docs.forEach(d => docsMap.set(d.id, mapDoc<WhitelistDoc>(d)));
+  return Array.from(docsMap.values());
 }
 
 
@@ -118,10 +129,10 @@ export async function updateFolder(folderId: string, data: Partial<FolderDoc>): 
 
 export async function deleteFolder(folderId: string): Promise<void> {
   await deleteDoc(doc(db, 'folders', folderId));
-  // Delete contents
+  // Unset folder from contents
   const cq = query(collection(db, 'contents'), where('folderId', '==', folderId));
   const cSnap = await getDocs(cq);
-  await Promise.all(cSnap.docs.map(d => deleteDoc(d.ref)));
+  await Promise.all(cSnap.docs.map(d => updateDoc(d.ref, { folderId: deleteField() })));
 }
 
 // Topic
@@ -133,10 +144,13 @@ export async function createTopic(data: Omit<TopicDoc, 'id' | 'type'>): Promise<
 export async function getTopicsByParent(parentId: string): Promise<TopicDoc[]> {
   const q = query(collection(db, 'topics'), where('parentId', '==', parentId));
   const snap = await getDocs(q);
-  return snap.docs.map(d => mapDoc<TopicDoc>(d)).sort((a, b) => {
-    if (a.orderIndex !== undefined && b.orderIndex !== undefined) return a.orderIndex - b.orderIndex;
-    return a.createdAt.toMillis() - b.createdAt.toMillis();
-  });
+  return snap.docs
+    .map(d => mapDoc<TopicDoc>(d))
+    .filter(t => t.createdBy) // Filter out legacy ghost topics
+    .sort((a, b) => {
+      if (a.orderIndex !== undefined && b.orderIndex !== undefined) return a.orderIndex - b.orderIndex;
+      return a.createdAt.toMillis() - b.createdAt.toMillis();
+    });
 }
 
 export async function updateTopic(topicId: string, data: Partial<TopicDoc>): Promise<void> {
@@ -148,7 +162,7 @@ export async function deleteTopic(topicId: string): Promise<void> {
   // Unset topic from contents
   const cq = query(collection(db, 'contents'), where('topicId', '==', topicId));
   const cSnap = await getDocs(cq);
-  await Promise.all(cSnap.docs.map(d => updateDoc(d.ref, { topicId: '' }))); // Firestore equivalent of delete
+  await Promise.all(cSnap.docs.map(d => updateDoc(d.ref, { topicId: deleteField() }))); // Remove topic from contents
 }
 
 // Content
@@ -202,9 +216,9 @@ export async function upsertScore(contentId: string, userId: string, data: Parti
   const q = query(collection(db, 'scores'), where('contentId', '==', contentId), where('userId', '==', userId));
   const snap = await getDocs(q);
   if (snap.empty) {
-    await addDoc(collection(db, 'scores'), { type: 'score', contentId, userId, ...data, updatedAt: Timestamp.now() });
+    await addDoc(collection(db, 'scores'), { type: 'score', contentId, userId, studentId: userId, ...data, updatedAt: Timestamp.now() });
   } else {
-    await updateDoc(snap.docs[0].ref, { ...data, updatedAt: Timestamp.now() });
+    await updateDoc(snap.docs[0].ref, { studentId: userId, ...data, updatedAt: Timestamp.now() });
   }
 }
 
@@ -221,8 +235,10 @@ export async function getMyScores(userId: string): Promise<ScoreDoc[]> {
 }
 
 // Leaderboard Subscription
-export function subscribeLeaderboard(contentId: string, callback: (scores: ScoreDoc[]) => void): () => void {
-  const q = query(collection(db, 'scores'), where('contentId', '==', contentId));
+export function subscribeLeaderboard(contentId: string, callback: (scores: ScoreDoc[]) => void, classId?: string): () => void {
+  const q = classId
+    ? query(collection(db, 'scores'), where('contentId', '==', contentId), where('classId', '==', classId))
+    : query(collection(db, 'scores'), where('contentId', '==', contentId));
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map(d => mapDoc<ScoreDoc>(d)));
   });

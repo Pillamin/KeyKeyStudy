@@ -6,12 +6,56 @@ import { getFoldersByTeacher, createContent } from '@/lib/firebase/queries';
 import type { FolderDoc } from '@/lib/firebase/types';
 import Navbar from '@/components/layout/Navbar';
 
+import { PDFDocument } from 'pdf-lib';
+import * as pdfjsLib from 'pdfjs-dist';
+
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+}
+
+async function compressPdfBytes(originalPdfBytes: Uint8Array): Promise<Uint8Array> {
+  const loadingTask = pdfjsLib.getDocument({ data: originalPdfBytes });
+  const pdf = await loadingTask.promise;
+  
+  const newPdfDoc = await PDFDocument.create();
+  
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 1.5 });
+    
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) continue;
+    
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    
+    await page.render({ canvasContext: context, viewport }).promise;
+    
+    const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+    const jpegImageBytes = await fetch(jpegDataUrl).then(res => res.arrayBuffer());
+    
+    const jpgImage = await newPdfDoc.embedJpg(jpegImageBytes);
+    const newPage = newPdfDoc.addPage([viewport.width, viewport.height]);
+    
+    newPage.drawImage(jpgImage, {
+      x: 0,
+      y: 0,
+      width: viewport.width,
+      height: viewport.height,
+    });
+  }
+  
+  return await newPdfDoc.save();
+}
+
 export default function NewContent() {
   const router = useRouter();
   const { user, profile, logout } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzingStatus, setAnalyzingStatus] = useState('');
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pageRange, setPageRange] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -36,12 +80,76 @@ export default function NewContent() {
     }
 
     setAnalyzing(true);
+    setAnalyzingStatus('');
     setErrorMsg('');
 
     try {
+      let finalFile = pdfFile;
+      let finalPageRange = pageRange;
+
+      try {
+        const arrayBuffer = await pdfFile.arrayBuffer();
+        const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+        const totalPages = pdfDoc.getPageCount();
+
+        const match = pageRange.match(/(\d+)\s*[-~]\s*(\d+)/);
+        let pagesToCopy: number[] = [];
+
+        if (match) {
+          const startPage = Math.max(1, parseInt(match[1], 10)) - 1;
+          const endPage = Math.max(startPage, parseInt(match[2], 10)) - 1;
+          const validEndPage = Math.min(endPage, totalPages - 1);
+          for (let i = startPage; i <= validEndPage; i++) {
+            pagesToCopy.push(i);
+          }
+        } else {
+          const singlePage = parseInt(pageRange.trim(), 10);
+          if (!isNaN(singlePage)) {
+            const pageIdx = Math.max(1, singlePage) - 1;
+            if (pageIdx < totalPages) {
+              pagesToCopy.push(pageIdx);
+            }
+          }
+        }
+
+        if (pagesToCopy.length === 0) {
+          throw new Error("페이지 범위 형식이 올바르지 않습니다. (예: '12-15' 또는 '15' 형태로 숫자만 입력해주세요)");
+        }
+
+        const newPdfDoc = await PDFDocument.create();
+        const copiedPages = await newPdfDoc.copyPages(pdfDoc, pagesToCopy);
+        copiedPages.forEach((page) => newPdfDoc.addPage(page));
+        const pdfBytes = await newPdfDoc.save();
+        finalFile = new File([pdfBytes as any], pdfFile.name, { type: 'application/pdf' });
+        finalPageRange = `1-${pagesToCopy.length}`;
+        
+        // Vercel 4.5MB 제한 체크 및 자체 압축 수행
+        if (finalFile.size > 4.5 * 1024 * 1024) {
+          setAnalyzingStatus('용량이 커서 브라우저 자체 압축을 진행 중입니다 (최대 1~2분 소요)...');
+          try {
+            const compressedBytes = await compressPdfBytes(pdfBytes);
+            finalFile = new File([compressedBytes as any], pdfFile.name, { type: 'application/pdf' });
+            if (finalFile.size > 4.5 * 1024 * 1024) {
+              throw new Error(`이미지 변환 압축 후에도 용량이 너무 큽니다 (${(finalFile.size/1024/1024).toFixed(1)}MB). 더 적은 페이지를 선택해주세요.`);
+            }
+          } catch (compressErr: any) {
+            console.error("PDF 자체 압축 실패:", compressErr);
+            throw new Error(`압축 처리 중 오류가 발생했습니다: ${compressErr.message}`);
+          }
+        }
+        
+        setAnalyzingStatus('압축 완료! 서버로 전송하여 AI 분석을 시작합니다...');
+
+      } catch (e: any) {
+        console.error("PDF 클라이언트 분할 중 오류 발생:", e);
+        setErrorMsg(e.message || "PDF 파일을 읽을 수 없습니다. (보안 설정 또는 손상된 파일)");
+        setAnalyzing(false);
+        return;
+      }
+
       const formData = new FormData();
-      formData.append('file', pdfFile);
-      formData.append('pageRange', pageRange);
+      formData.append('file', finalFile);
+      formData.append('pageRange', finalPageRange);
 
       const res = await fetch('/api/analyze', {
         method: 'POST',
@@ -50,6 +158,20 @@ export default function NewContent() {
 
       if (!res.ok) {
         const errorText = await res.text();
+        if (res.status === 503 || errorText.includes('503') || errorText.includes('high demand')) {
+          throw new Error('현재 AI 서버 요청이 많거나 할당된 무료 토큰이 부족하여 처리가 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
+        }
+        
+        // Try parsing JSON error if possible
+        try {
+          const errObj = JSON.parse(errorText);
+          if (errObj.error?.message && typeof errObj.error.message === 'string') {
+             if (errObj.error.message.includes('503') || errObj.error.message.includes('high demand')) {
+                throw new Error('현재 AI 서버 요청이 많거나 할당된 무료 토큰이 부족하여 처리가 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
+             }
+          }
+        } catch(e) {}
+        
         throw new Error(errorText || '분석 중 오류가 발생했습니다.');
       }
 
@@ -110,12 +232,16 @@ export default function NewContent() {
       <main className="container" style={{ flex: 1, padding: 'var(--spacing-lg)', maxWidth: 720, margin: '0 auto', width: '100%' }}>
         <a onClick={() => router.back()} style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 'var(--spacing-md)' }}>← 뒤로</a>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: 'var(--spacing-xs)', color: 'var(--color-text-primary)' }}>✨ AI 학습 콘텐츠 생성</h1>
-        <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-xl)' }}>교과서 PDF를 업로드하고 페이지 범위를 지정하면 Gemini AI가 내용을 추출하여 학습 콘텐츠를 자동 생성합니다.</p>
+        <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-md)' }}>교과서 PDF를 업로드하고 페이지 범위를 지정하면 Gemini AI가 내용을 추출하여 학습 콘텐츠를 자동 생성합니다.</p>
+        <div style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary)', padding: 'var(--spacing-sm) var(--spacing-md)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', fontWeight: 600, marginBottom: 'var(--spacing-xl)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>💡</span>
+          용량이 큰 파일은 필요한 부분만 PDF를 잘라서 올리시면 훨씬 더 빠르고 정확하게 분석할 수 있습니다.
+        </div>
 
         {analyzing ? (
           <div className="card" style={{ padding: 'var(--spacing-2xl)', textAlign: 'center' }}>
             <div style={{ fontSize: '2rem', marginBottom: 'var(--spacing-sm)' }}>🤖</div>
-            <p style={{ fontWeight: 700, marginBottom: 'var(--spacing-xs)', color: 'var(--color-primary)' }}>PDF 텍스트 추출 및 AI 분석 중입니다...</p>
+            <p style={{ fontWeight: 700, marginBottom: 'var(--spacing-xs)', color: 'var(--color-primary)' }}>{analyzingStatus || 'PDF 텍스트 추출 및 AI 분석 중입니다...'}</p>
             <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: 'var(--spacing-lg)' }}>문서 크기에 따라 시간이 소요될 수 있습니다.</p>
             
             <div className="progress-bar-track" style={{ maxWidth: 400, margin: '0 auto' }}>
@@ -181,6 +307,7 @@ export default function NewContent() {
                 <input type="text" className="form-input" value={pageRange} onChange={(e) => setPageRange(e.target.value)} placeholder="예: 12-15" required />
                 <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 4 }}>지정된 페이지의 텍스트를 AI가 자동 추출하여 콘텐츠를 생성합니다.</p>
                 <p style={{ fontSize: '0.75rem', color: 'var(--color-error)', marginTop: 4, fontWeight: 600 }}>※ 교과서에 인쇄된 쪽수가 아닌, PDF 파일 자체의 쪽수 기준으로 입력해주세요.</p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--color-primary)', marginTop: 4, fontWeight: 600 }}>💡 꿀팁: 10페이지 이상의 대용량 범위를 한 번에 올리시면 자체 이미지 변환 압축 과정을 거치느라 처리 시간이 다소 지연될 수 있습니다. 더 빠른 생성을 원하신다면 미리 필요한 페이지만 잘라서 업로드해 주세요!</p>
               </div>
             </div>
             

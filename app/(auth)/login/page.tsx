@@ -56,10 +56,12 @@ export default function LoginPage() {
           }
         }
         for (const u of seedUsers) {
-          if (!(await getWhitelistDoc(u.email))) {
+          const existing = await getWhitelistDoc(u.email);
+          if (!existing) {
             await createWhitelistDoc(u.email, { ...u, registeredAt: ts } as any);
           } else {
-            await updateWhitelistDoc(u.email, { ...u, registeredAt: ts } as any);
+            // Update existing mock users to have 2026-07-01 signup date
+            await updateWhitelistDoc(u.email, { registeredAt: ts } as any);
           }
         }
       } catch (err) {
@@ -103,7 +105,7 @@ export default function LoginPage() {
             Google 계정으로 로그인
           </button>
 
-          <button className="btn btn-outline" onClick={loginAsNewMock} disabled={loading} style={{ padding: '12px', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px dashed var(--color-primary)' }}>
+          <button className="btn btn-outline" onClick={loginAsNewMock} style={{ padding: '12px', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px dashed var(--color-primary)' }}>
             ✨ 최초 로그인 (가입) 체험하기
           </button>
 
@@ -115,9 +117,9 @@ export default function LoginPage() {
               <div style={{ border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', padding: 'var(--spacing-sm)' }}>
                 <p style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 'var(--spacing-xs)', textAlign: 'left', color: 'var(--color-text-primary)' }}>1학년 1반</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('teacher', 't1@mock.com', '김철수 선생님', { homeroom: '1학년 1반' })} disabled={loading}>👨‍🏫 김철수 교사</button>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('teacher', 't1@mock.com', '김철수 선생님', { homeroom: '1학년 1반' })}>👨‍🏫 김철수 교사</button>
                   {[{n:1, name:'김서준'}, {n:2, name:'이도윤'}, {n:3, name:'박시우'}, {n:4, name:'최지호'}, {n:5, name:'정예준'}].map(s => (
-                    <button key={s.n} className="btn btn-outline" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('student', `s1_${s.n}@mock.com`, s.name, { grade: '1', classNumber: '1', studentNumber: `${s.n}` })} disabled={loading}>{s.name}</button>
+                    <button key={s.n} className="btn btn-outline" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('student', `s1_${s.n}@mock.com`, s.name, { grade: '1', classNumber: '1', studentNumber: `${s.n}` })}>{s.name}</button>
                   ))}
                 </div>
               </div>
@@ -125,9 +127,9 @@ export default function LoginPage() {
               <div style={{ border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', padding: 'var(--spacing-sm)' }}>
                 <p style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 'var(--spacing-xs)', textAlign: 'left', color: 'var(--color-text-primary)' }}>1학년 2반</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('teacher', 't2@mock.com', '이영희 선생님', { homeroom: '1학년 2반' })} disabled={loading}>👨‍🏫 이영희 교사</button>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('teacher', 't2@mock.com', '이영희 선생님', { homeroom: '1학년 2반' })}>👨‍🏫 이영희 교사</button>
                   {[{n:1, name:'강하준'}, {n:2, name:'조주원'}, {n:3, name:'윤은우'}, {n:4, name:'장건우'}, {n:5, name:'임선우'}].map(s => (
-                    <button key={s.n} className="btn btn-outline" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('student', `s2_${s.n}@mock.com`, s.name, { grade: '1', classNumber: '2', studentNumber: `${s.n}` })} disabled={loading}>{s.name}</button>
+                    <button key={s.n} className="btn btn-outline" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('student', `s2_${s.n}@mock.com`, s.name, { grade: '1', classNumber: '2', studentNumber: `${s.n}` })}>{s.name}</button>
                   ))}
                 </div>
               </div>
@@ -135,9 +137,9 @@ export default function LoginPage() {
               <div style={{ border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', padding: 'var(--spacing-sm)' }}>
                 <p style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 'var(--spacing-xs)', textAlign: 'left', color: 'var(--color-text-primary)' }}>1학년 3반</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('teacher', 't3@mock.com', '박지민 선생님', { homeroom: '1학년 3반' })} disabled={loading}>👨‍🏫 박지민 교사</button>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('teacher', 't3@mock.com', '박지민 선생님', { homeroom: '1학년 3반' })}>👨‍🏫 박지민 교사</button>
                   {[{n:1, name:'한서진'}, {n:2, name:'오연우'}, {n:3, name:'서하온'}, {n:4, name:'신유안'}, {n:5, name:'권민준'}].map(s => (
-                    <button key={s.n} className="btn btn-outline" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('student', `s3_${s.n}@mock.com`, s.name, { grade: '1', classNumber: '3', studentNumber: `${s.n}` })} disabled={loading}>{s.name}</button>
+                    <button key={s.n} className="btn btn-outline" style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '100px' }} onClick={() => loginAsMock('student', `s3_${s.n}@mock.com`, s.name, { grade: '1', classNumber: '3', studentNumber: `${s.n}` })}>{s.name}</button>
                   ))}
                 </div>
               </div>
@@ -159,7 +161,7 @@ export default function LoginPage() {
               style={{ padding: 'var(--spacing-xl)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xl)', background: '#FAFAFA' }}
               onScroll={(e) => {
                 const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-                if (scrollHeight - scrollTop <= clientHeight + 50) {
+                if (scrollHeight - scrollTop <= clientHeight + 150) {
                   setIsScrolledToBottom(true);
                 }
               }}

@@ -123,6 +123,7 @@ export default function EditContent() {
           delete classCopyData.id;
           delete classCopyData.type;
           delete classCopyData.folderId; // Copies do not belong to library folders
+          delete classCopyData.topicId; // Clear topicId so it doesn't reference a library topic
           
           const newId = await createContent(classCopyData);
           
@@ -159,7 +160,6 @@ export default function EditContent() {
           <div>
             <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 4 }}>
               <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: 'var(--color-primary-light)', color: 'var(--color-primary)', borderRadius: 'var(--radius-full)', fontWeight: 600 }}>{contentDoc.subject}</span>
-              <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#FEF3C7', color: '#92400E', borderRadius: 'var(--radius-full)', fontWeight: 600 }}>{contentDoc.status === 'draft' ? '임시저장' : '배포됨'}</span>
             </div>
             <h1 style={{ fontSize: '1.375rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>{contentDoc.unit} - {contentDoc.title}</h1>
             <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginTop: 4 }}>AI가 PDF를 분석하여 추출한 내용입니다. 필요 시 직접 수정할 수 있습니다.</p>
@@ -341,9 +341,9 @@ export default function EditContent() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-sm)' }}>
-                <button className="btn btn-secondary" onClick={() => setShowPublishModal(false)}>취소</button>
-                <button className="btn btn-primary" onClick={() => handleSave(true)} disabled={classes.length > 0 && selectedClassIds.length === 0}>
-                  선택한 반에 배포
+                <button className="btn btn-secondary" onClick={() => setShowPublishModal(false)} disabled={saving}>취소</button>
+                <button className="btn btn-primary" onClick={() => handleSave(true)} disabled={saving || (classes.length > 0 && selectedClassIds.length === 0)}>
+                  {saving ? '배포 중...' : '선택한 반에 배포'}
                 </button>
               </div>
             </div>

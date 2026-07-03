@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 
 export async function POST(req: NextRequest) {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
   try {
     const body = await req.json();
     const { messages, contentContext } = body;

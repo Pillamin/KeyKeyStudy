@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import { createWhitelistDoc } from '@/lib/firebase/queries';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/ToastContext';
+import { marked } from 'marked';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -66,9 +67,9 @@ export default function SignupPage() {
         else if (profile.role === 'teacher') router.push('/teacher/dashboard');
         else router.push('/student/dashboard');
       } else {
-        if (user.displayName === '최초 로그인 교사 테스트' || user.email === 'new_user@mock.com') {
-          setTeacherName('최초 로그인 교사 테스트');
-          setStudentName('최초 로그인 학생 테스트');
+        if (user.displayName === '최초 로그인 교사 테스트' || user.email === 'new_user@mock.com' || user.email === 'demo@mock.com') {
+          setTeacherName('김교사');
+          setStudentName('김학생');
         } else if (user.displayName) {
           setTeacherName(user.displayName);
           setStudentName(user.displayName);
@@ -102,7 +103,7 @@ export default function SignupPage() {
       return;
     }
     try {
-      if (user.email === 'new_user@mock.com') {
+      if (user.email === 'new_user@mock.com' || user.email === 'demo@mock.com') {
         const mockSessionStr = localStorage.getItem('eduapp_mock_session');
         if (mockSessionStr) {
           const mockSession = JSON.parse(mockSessionStr);
@@ -141,7 +142,7 @@ export default function SignupPage() {
 
     setIsSubmitting(true);
     try {
-      if (user.email === 'new_user@mock.com') {
+      if (user.email === 'new_user@mock.com' || user.email === 'demo@mock.com') {
         const mockSessionStr = localStorage.getItem('eduapp_mock_session');
         if (mockSessionStr) {
           const mockSession = JSON.parse(mockSessionStr);
@@ -255,7 +256,7 @@ export default function SignupPage() {
               <form onSubmit={handleTeacherSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px' }}>교사 인증코드</label>
-                  <input type="password" required value={authCode} onChange={e => setAuthCode(e.target.value)} className="input" placeholder="인증코드를 입력하세요 (임시코드 : edu2026)" style={{ width: '100%', padding: '12px' }} />
+                  <input type="password" required value={authCode} onChange={e => setAuthCode(e.target.value)} className="input" placeholder="교사 인증코드를 입력하세요" style={{ width: '100%', padding: '12px' }} />
                   <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '4px' }}>* 선생님들께만 안내된 코드를 입력해 주세요.</p>
                 </div>
 
@@ -360,12 +361,12 @@ export default function SignupPage() {
               {!legalContent ? (
                 <div style={{ textAlign: 'center', padding: '2rem' }}>불러오는 중...</div>
               ) : (
-                <div className="prose" style={{ maxWidth: '100%', fontSize: '0.9375rem', lineHeight: 1.7, color: 'var(--color-text-secondary)' }}>
+                <div className="legal-content" style={{ maxWidth: '100%' }}>
                   <h3 style={{ color: 'var(--color-text-primary)', borderBottom: '1px solid var(--color-border-default)', paddingBottom: 8, marginBottom: 16 }}>이용약관</h3>
-                  <div style={{ whiteSpace: 'pre-wrap', marginBottom: 'var(--spacing-2xl)' }}>{legalContent.terms}</div>
+                  <div dangerouslySetInnerHTML={{ __html: marked(legalContent.terms) as string }} style={{ marginBottom: 'var(--spacing-2xl)' }} />
                   
                   <h3 style={{ color: 'var(--color-text-primary)', borderBottom: '1px solid var(--color-border-default)', paddingBottom: 8, marginBottom: 16 }}>개인정보처리방침</h3>
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{legalContent.privacy}</div>
+                  <div dangerouslySetInnerHTML={{ __html: marked(legalContent.privacy) as string }} />
                 </div>
               )}
             </div>
